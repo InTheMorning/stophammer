@@ -105,7 +105,7 @@ async fn test_e2e_ingest_to_query_golden_path() {
             "feed_payment_routes": [{
                 "recipient_name": "TC05 Artist",
                 "route_type": "node",
-                "address": "03tc05feedrouteaddress",
+                "address": "03c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5",
                 "custom_key": null,
                 "custom_value": null,
                 "split": 95,
@@ -128,7 +128,7 @@ async fn test_e2e_ingest_to_query_golden_path() {
                     "payment_routes": [{
                         "recipient_name": "TC05 Artist",
                         "route_type": "node",
-                        "address": "03tc05trackrouteaddress",
+                        "address": "02d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5",
                         "custom_key": "7629169",
                         "custom_value": "podcast-tc05",
                         "split": 95,
@@ -152,7 +152,7 @@ async fn test_e2e_ingest_to_query_golden_path() {
                     "payment_routes": [{
                         "recipient_name": "TC05 Artist",
                         "route_type": "node",
-                        "address": "03tc05trackrouteaddress",
+                        "address": "02d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5",
                         "custom_key": "7629169",
                         "custom_value": "podcast-tc05",
                         "split": 95,
@@ -403,7 +403,7 @@ async fn test_e2e_ingest_to_query_golden_path() {
     );
     assert_eq!(
         routes[0]["address"].as_str().expect("address"),
-        "03tc05feedrouteaddress",
+        "03c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5",
         "feed route address should match"
     );
 }

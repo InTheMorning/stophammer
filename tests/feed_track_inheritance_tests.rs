@@ -71,7 +71,7 @@ fn seed_feed_and_track(conn: &rusqlite::Connection) -> i64 {
 fn insert_track_route(conn: &rusqlite::Connection, track_guid: &str, name: &str, address: &str) {
     conn.execute(
         "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, split, fee) \
-         VALUES (?1, 'feed-inh', ?2, 'keysend', ?3, 100, 0)",
+         VALUES (?1, 'feed-inh', ?2, 'node', ?3, 100, 0)",
         params![track_guid, name, address],
     )
     .unwrap();
@@ -80,7 +80,7 @@ fn insert_track_route(conn: &rusqlite::Connection, track_guid: &str, name: &str,
 fn insert_feed_route(conn: &rusqlite::Connection, feed_guid: &str, name: &str, address: &str) {
     conn.execute(
         "INSERT INTO feed_payment_routes (feed_guid, recipient_name, route_type, address, split, fee) \
-         VALUES (?1, ?2, 'keysend', ?3, 100, 0)",
+         VALUES (?1, ?2, 'node', ?3, 100, 0)",
         params![feed_guid, name, address],
     )
     .unwrap();
@@ -134,8 +134,18 @@ async fn track_with_own_routes_returns_track_routes() {
     {
         let conn = db.lock().unwrap();
         seed_feed_and_track(&conn);
-        insert_track_route(&conn, "track-inh", "Track Artist", "aaa111");
-        insert_feed_route(&conn, "feed-inh", "Feed Artist", "bbb222");
+        insert_track_route(
+            &conn,
+            "track-inh",
+            "Track Artist",
+            "02a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        );
+        insert_feed_route(
+            &conn,
+            "feed-inh",
+            "Feed Artist",
+            "03b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+        );
     }
     let state = test_app_state(db);
     let json = get_track_json(state, "track-inh", "payment_routes").await;
@@ -144,7 +154,10 @@ async fn track_with_own_routes_returns_track_routes() {
         .unwrap_or_else(|| panic!("payment_routes missing from: {json}"));
     assert_eq!(routes.len(), 1);
     assert_eq!(routes[0]["recipient_name"], "Track Artist");
-    assert_eq!(routes[0]["address"], "aaa111");
+    assert_eq!(
+        routes[0]["address"],
+        "02a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+    );
 }
 
 #[tokio::test]
@@ -154,14 +167,22 @@ async fn track_without_routes_inherits_feed_routes() {
         let conn = db.lock().unwrap();
         seed_feed_and_track(&conn);
         // No track routes — only feed routes
-        insert_feed_route(&conn, "feed-inh", "Feed Artist", "bbb222");
+        insert_feed_route(
+            &conn,
+            "feed-inh",
+            "Feed Artist",
+            "03b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+        );
     }
     let state = test_app_state(db);
     let json = get_track_json(state, "track-inh", "payment_routes").await;
     let routes = json["payment_routes"].as_array().unwrap();
     assert_eq!(routes.len(), 1);
     assert_eq!(routes[0]["recipient_name"], "Feed Artist");
-    assert_eq!(routes[0]["address"], "bbb222");
+    assert_eq!(
+        routes[0]["address"],
+        "03b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+    );
 }
 
 #[tokio::test]

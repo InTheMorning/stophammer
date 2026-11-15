@@ -231,7 +231,8 @@
       "two_way_link_count",
       "unconfirmed_release_artist_count",
       "unconfirmed_release_artists",
-      "updated_at"
+      "updated_at",
+      "value_blocks"
     ]
   },
   "FeedSupersededBody": {
@@ -317,10 +318,13 @@
   },
   "LocalVtsResponse": {
     "properties": [
+      "block_index",
       "duration",
       "position",
       "recipients",
-      "start_time"
+      "start_time",
+      "value_method",
+      "value_type"
     ]
   },
   "NamedFeedEntry": {
@@ -684,6 +688,7 @@
       "track_image_url",
       "track_number",
       "updated_at",
+      "value_blocks",
       "value_time_splits"
     ]
   },
@@ -700,8 +705,17 @@
       "track_number"
     ]
   },
+  "ValueBlockResponse": {
+    "properties": [
+      "block_index",
+      "recipients",
+      "value_method",
+      "value_type"
+    ]
+  },
   "VtsResponse": {
     "properties": [
+      "block_index",
       "duration",
       "duration_secs",
       "remote_episode_count",
@@ -719,7 +733,9 @@
       "remote_track_title",
       "split",
       "start_time",
-      "start_time_secs"
+      "start_time_secs",
+      "value_method",
+      "value_type"
     ]
   }
 }

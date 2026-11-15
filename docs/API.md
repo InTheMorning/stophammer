@@ -817,7 +817,7 @@ ignores a `limit` above the stated maximum, and returns the maximum instead.
 Returns a single feed by its `podcast:guid`.
 
 - **Authentication:** None
-- **Include options:** `tracks`, `payment_routes`, `source_links`, `source_ids`, `source_contributors`, `source_platforms`, `source_release_claims`, `remote_items`, `publisher`
+- **Include options:** `tracks`, `payment_routes`, `value_blocks`, `source_links`, `source_ids`, `source_contributors`, `source_platforms`, `source_release_claims`, `remote_items`, `publisher`
 
 **Response (`200 OK`):**
 
@@ -858,12 +858,46 @@ Returns a single feed by its `podcast:guid`.
     "payment_routes": [
       {
         "recipient_name": "Artist",
-        "route_type": "keysend",
+        "route_type": "node",
         "address": "02abc...",
         "custom_key": "7629169",
         "custom_value": "...",
         "split": 100,
         "fee": false
+      }
+    ],
+    "value_blocks": [
+      {
+        "block_index": 0,
+        "value_type": "lightning",
+        "value_method": "keysend",
+        "recipients": [
+          {
+            "recipient_name": "Artist",
+            "route_type": "node",
+            "address": "02abc...",
+            "custom_key": "7629169",
+            "custom_value": "...",
+            "split": 100,
+            "fee": false
+          }
+        ]
+      },
+      {
+        "block_index": 1,
+        "value_type": "usdc",
+        "value_method": "eip3009",
+        "recipients": [
+          {
+            "recipient_name": "Artist",
+            "route_type": "address",
+            "address": "eip155:8453:0x1111...",
+            "custom_key": null,
+            "custom_value": null,
+            "split": 100,
+            "fee": false
+          }
+        ]
       }
     ],
     "source_links": [
@@ -1142,8 +1176,8 @@ it names. ADR 0060 owns them. A track playlist gives them.
 
 The node finds the track at each read, in the feed that the entry resolves to
 (ADR 0049 §3). Each key is always in the entry. The value block of a `musicL`
-feed is kept as source data. `include=payment_routes` on a `musicL` feed gives
-an empty list.
+feed is kept as source data. `include=payment_routes` and
+`include=value_blocks` on a `musicL` feed each give an empty list.
 
 An entry with a `remote_track_guid` also gives three values of that track. ADR
 0059 §5 owns them. They come from the same lookup, so they add no query.
@@ -1971,7 +2005,7 @@ relay means the event is dead: the stream ended, or the relay never held it.
 Canonical track lookup by parent `feed_guid` plus raw source `track_guid`.
 
 - **Authentication:** None
-- **Include options:** `payment_routes`, `value_time_splits`, `local_value_time_splits`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`, `source_transcripts`, `remote_items`, `publisher`
+- **Include options:** `payment_routes`, `value_blocks`, `value_time_splits`, `local_value_time_splits`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`, `source_transcripts`, `remote_items`, `publisher`
 
 **Response (`200 OK`):** same shape as `GET /v1/tracks/{guid}`.
 
@@ -1990,7 +2024,7 @@ publish the same `track_guid`, the endpoint returns `409 Conflict` with
 canonical feed-scoped URLs for the caller to retry.
 
 - **Authentication:** None
-- **Include options:** `payment_routes`, `value_time_splits`, `local_value_time_splits`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`, `source_transcripts`, `remote_items`, `publisher`
+- **Include options:** `payment_routes`, `value_blocks`, `value_time_splits`, `local_value_time_splits`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`, `source_transcripts`, `remote_items`, `publisher`
 
 **Response (`200 OK`):**
 
@@ -2146,6 +2180,27 @@ canonical feed-scoped URLs for the caller to retry.
 
 Notes:
 
+- `payment_routes` gives only the Lightning routes that a client can pay
+  (ADR 0098 section 4). A route is in the list only when all these conditions
+  are true: its block has the `value_type` `lightning` or null, its
+  `route_type` is `node` or `lnaddress`, and a `node` route has an `address`
+  of 66 hexadecimal characters. A track with no stored route gets the routes
+  of its feed. A track with one or more stored routes does not get them, also
+  when the conditions remove each route of the track. The same conditions
+  apply to `payment_routes` of a feed.
+- `value_blocks` gives each stored `podcast:value` block, on a feed and on a
+  track (ADR 0098 section 4). Each block gives `block_index`, `value_type`,
+  `value_method` and `recipients`. A recipient has the fields of a payment
+  route, and `route_type` is the text of the feed, for example `address` in a
+  `usdc` block. The node does not examine an address in this list. The blocks
+  are in the sequence of `block_index`, and the recipients keep the sequence
+  of the source. The rows from before ADR 0098 give one block with null in
+  `block_index`, `value_type` and `value_method`, and that block is the first
+  one. A track with no stored route gets the blocks of its feed. A block with
+  only value time splits and no recipient is not in the list.
+- Each row of `value_time_splits` and of `local_value_time_splits` gives
+  `block_index`, `value_type` and `value_method` of its block. They are null
+  for a row from before ADR 0098.
 - `value_time_splits` lists only a row with `remote_feed_guid`. A local
   split gives no row here. `start_time_secs` and `duration_secs` give the
   stated value, cut down to an integer. `remote_item_guid` is `""` when
@@ -2495,8 +2550,8 @@ index (ADR 0071 section 5).
   "capabilities": ["query", "search", "sync", "push", "name_lists", "sort", "feed_by_url", "artist_newest", "artist_role_filter", "publisher_row_date", "artist_row_release_artist", "release_track_counts", "search_feed_summary", "search_medium"],
   "entity_types": ["feed", "track", "publisher"],
   "include_params": {
-    "feed": ["tracks", "payment_routes", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher"],
-    "track": ["payment_routes", "value_time_splits", "local_value_time_splits", "source_links", "source_ids", "source_contributors", "source_release_claims", "source_enclosures", "source_transcripts", "remote_items", "publisher"],
+    "feed": ["tracks", "payment_routes", "value_blocks", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher"],
+    "track": ["payment_routes", "value_blocks", "value_time_splits", "local_value_time_splits", "source_links", "source_ids", "source_contributors", "source_release_claims", "source_enclosures", "source_transcripts", "remote_items", "publisher"],
     "feed_list": ["link_facts", "named_feeds"],
     "artist_list": ["link_facts"],
     "search": ["link_facts"]

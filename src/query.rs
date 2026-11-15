@@ -439,6 +439,7 @@ fn like_contains_pattern(value: &str) -> String {
 pub const FEED_INCLUDES: &[&str] = &[
     "tracks",
     "payment_routes",
+    "value_blocks",
     "source_links",
     "source_ids",
     "source_contributors",
@@ -639,6 +640,7 @@ const SEARCH_EXCLUSION_MAX: usize = 10;
 /// The include names `GET /v1/tracks/{guid}` accepts.
 pub const TRACK_INCLUDES: &[&str] = &[
     "payment_routes",
+    "value_blocks",
     "value_time_splits",
     // ADR 0073 §4: the local form of a value time split.
     "local_value_time_splits",
@@ -773,6 +775,8 @@ struct FeedResponse {
     tracks: Option<Vec<TrackSummary>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     payment_routes: Option<Vec<RouteResponse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    value_blocks: Option<Vec<ValueBlockResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     source_links: Option<Vec<SourceEntityLinkResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1061,6 +1065,15 @@ struct RouteResponse {
     fee: bool,
 }
 
+/// One `podcast:value` block of a feed or of a track (ADR 0098 §4).
+#[derive(Debug, Serialize, ToSchema)]
+struct ValueBlockResponse {
+    block_index: Option<i64>,
+    value_type: Option<String>,
+    value_method: Option<String>,
+    recipients: Vec<RouteResponse>,
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 struct TrackResponse {
     track_guid: String,
@@ -1091,6 +1104,8 @@ struct TrackResponse {
     release_artist_source: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     payment_routes: Option<Vec<RouteResponse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    value_blocks: Option<Vec<ValueBlockResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     value_time_splits: Option<Vec<VtsResponse>>,
     /// The local form of a value time split (ADR 0073 §4).
@@ -1269,6 +1284,9 @@ struct ArtistTrackItem {
 
 #[derive(Debug, Serialize, ToSchema)]
 struct VtsResponse {
+    block_index: Option<i64>,
+    value_type: Option<String>,
+    value_method: Option<String>,
     start_time_secs: i64,
     duration_secs: Option<i64>,
     remote_feed_guid: String,
@@ -1346,6 +1364,9 @@ fn vts_response_from_split(
     let remote_percentage = split.remote_percentage;
     let percentage = remote_percentage.unwrap_or(100.0).clamp(0.0, 100.0);
     Ok(Some(VtsResponse {
+        block_index: split.block_index,
+        value_type: split.value_type.clone(),
+        value_method: split.value_method.clone(),
         start_time_secs: split.start_time_secs.floor() as i64,
         duration_secs: split.duration_secs.map(|d| d.floor() as i64),
         remote_feed_guid,
@@ -1371,6 +1392,9 @@ fn vts_response_from_split(
 /// fields of a payment route, in source order.
 #[derive(Debug, Serialize, ToSchema)]
 struct LocalVtsResponse {
+    block_index: Option<i64>,
+    value_type: Option<String>,
+    value_method: Option<String>,
     position: i64,
     start_time: f64,
     duration: Option<f64>,
@@ -1397,11 +1421,132 @@ fn local_vts_response_from_split(split: ValueTimeSplit) -> Option<LocalVtsRespon
         })
         .collect();
     Some(LocalVtsResponse {
+        block_index: split.block_index,
+        value_type: split.value_type,
+        value_method: split.value_method,
         position: split.position,
         start_time: split.start_time_secs,
         duration: split.duration_secs,
         recipients,
     })
+}
+
+/// A stored recipient with the fields of its value block (ADR 0098 §4).
+struct StoredRoute {
+    block_index: Option<i64>,
+    value_type: Option<String>,
+    value_method: Option<String>,
+    recipient: RouteResponse,
+}
+
+impl StoredRoute {
+    /// Tells if `payment_routes` gives this recipient (ADR 0098 §4). The
+    /// block is a Lightning block, the type is `node` or `lnaddress`, and a
+    /// `node` address is a public key of 66 hexadecimal characters.
+    fn is_lightning_route(&self) -> bool {
+        if !matches!(self.value_type.as_deref(), None | Some("lightning")) {
+            return false;
+        }
+        let address = &self.recipient.address;
+        match self.recipient.route_type.as_str() {
+            "lnaddress" => true,
+            "node" => address.len() == 66 && address.bytes().all(|b| b.is_ascii_hexdigit()),
+            _ => false,
+        }
+    }
+}
+
+impl From<crate::model::PaymentRoute> for StoredRoute {
+    fn from(route: crate::model::PaymentRoute) -> Self {
+        Self {
+            block_index: route.block_index,
+            value_type: route.value_type,
+            value_method: route.value_method,
+            recipient: RouteResponse {
+                recipient_name: route.recipient_name,
+                route_type: route.route_type.as_str().to_owned(),
+                address: route.address,
+                custom_key: route.custom_key,
+                custom_value: route.custom_value,
+                split: route.split,
+                fee: route.fee,
+            },
+        }
+    }
+}
+
+impl From<crate::model::FeedPaymentRoute> for StoredRoute {
+    fn from(route: crate::model::FeedPaymentRoute) -> Self {
+        Self {
+            block_index: route.block_index,
+            value_type: route.value_type,
+            value_method: route.value_method,
+            recipient: RouteResponse {
+                recipient_name: route.recipient_name,
+                route_type: route.route_type.as_str().to_owned(),
+                address: route.address,
+                custom_key: route.custom_key,
+                custom_value: route.custom_value,
+                split: route.split,
+                fee: route.fee,
+            },
+        }
+    }
+}
+
+/// Reads the stored routes of a feed, in stored row order.
+fn stored_feed_routes(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+) -> Result<Vec<StoredRoute>, db::DbError> {
+    Ok(db::get_feed_payment_routes_for_feed(conn, feed_guid)?
+        .into_iter()
+        .map(StoredRoute::from)
+        .collect())
+}
+
+/// Reads the stored routes of a track. A track with no stored route gets the
+/// routes of its feed (ADR 0098 §4).
+fn stored_track_routes(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+    track_guid: &str,
+) -> Result<Vec<StoredRoute>, db::DbError> {
+    let routes = db::get_payment_routes_for_feed_track(conn, feed_guid, track_guid)?;
+    if routes.is_empty() {
+        return stored_feed_routes(conn, feed_guid);
+    }
+    Ok(routes.into_iter().map(StoredRoute::from).collect())
+}
+
+/// Gives the list of `include=payment_routes`: only the Lightning routes that
+/// a client can pay (ADR 0098 §4).
+fn lightning_routes(routes: Vec<StoredRoute>) -> Vec<RouteResponse> {
+    routes
+        .into_iter()
+        .filter(StoredRoute::is_lightning_route)
+        .map(|route| route.recipient)
+        .collect()
+}
+
+/// Gives the list of `include=value_blocks`: each block in the order of
+/// `block_index`, with no check of a recipient (ADR 0098 §4). The rows with
+/// no `block_index` are one block, and that block is the first one.
+fn value_blocks_from_routes(routes: Vec<StoredRoute>) -> Vec<ValueBlockResponse> {
+    let mut blocks = BTreeMap::<Option<i64>, ValueBlockResponse>::new();
+    for route in routes {
+        blocks
+            .entry(route.block_index)
+            .or_insert_with(|| ValueBlockResponse {
+                block_index: route.block_index,
+                value_type: route.value_type,
+                value_method: route.value_method,
+                recipients: Vec::new(),
+            })
+            .recipients
+            .push(route.recipient);
+    }
+    blocks.into_values().collect()
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -2448,6 +2593,7 @@ fn build_feed_response(
         updated_at: row.updated_at,
         tracks: None,
         payment_routes: None,
+        value_blocks: None,
         source_links: None,
         source_ids: None,
         source_contributors: None,
@@ -2524,24 +2670,12 @@ fn build_feed_response(
                 resp.tracks = Some(tracks);
             }
             "payment_routes" => {
-                let mut stmt = conn.prepare(
-                    "SELECT recipient_name, route_type, address, NULLIF(custom_key, ''), NULLIF(custom_value, ''), split, fee \
-                     FROM feed_payment_routes WHERE feed_guid = ?1",
-                )?;
-                let routes: Vec<RouteResponse> = stmt
-                    .query_map(params![feed_guid], |row| {
-                        Ok(RouteResponse {
-                            recipient_name: row.get(0)?,
-                            route_type: row.get(1)?,
-                            address: row.get(2)?,
-                            custom_key: row.get(3)?,
-                            custom_value: row.get(4)?,
-                            split: row.get(5)?,
-                            fee: row.get::<_, i64>(6)? != 0,
-                        })
-                    })?
-                    .collect::<Result<_, _>>()?;
-                resp.payment_routes = Some(routes);
+                resp.payment_routes = Some(lightning_routes(stored_feed_routes(conn, &feed_guid)?));
+            }
+            "value_blocks" => {
+                resp.value_blocks = Some(value_blocks_from_routes(stored_feed_routes(
+                    conn, &feed_guid,
+                )?));
             }
             "source_links" => {
                 resp.source_links = Some(
@@ -2647,6 +2781,7 @@ fn build_track_response(
         release_artist: row.release_artist,
         release_artist_source: row.release_artist_source,
         payment_routes: None,
+        value_blocks: None,
         value_time_splits: None,
         local_value_time_splits: None,
         source_links: None,
@@ -2667,43 +2802,18 @@ fn build_track_response(
         }
         match name {
             "payment_routes" => {
-                let routes: Vec<RouteResponse> =
-                    db::get_payment_routes_for_feed_track(conn, &feed_guid, &track_guid)?
-                        .into_iter()
-                        .map(|route| RouteResponse {
-                            recipient_name: route.recipient_name,
-                            route_type: route.route_type.as_str().to_owned(),
-                            address: route.address,
-                            custom_key: route.custom_key,
-                            custom_value: route.custom_value,
-                            split: route.split,
-                            fee: route.fee,
-                        })
-                        .collect();
-                // Feed→track inheritance: fall back to parent feed routes
-                // when the track has none of its own.
-                let routes = if routes.is_empty() {
-                    let mut fstmt = conn.prepare(
-                        "SELECT recipient_name, route_type, address, NULLIF(custom_key, ''), NULLIF(custom_value, ''), split, fee \
-                         FROM feed_payment_routes WHERE feed_guid = ?1",
-                    )?;
-                    fstmt
-                        .query_map(params![resp.feed_guid], |row| {
-                            Ok(RouteResponse {
-                                recipient_name: row.get(0)?,
-                                route_type: row.get(1)?,
-                                address: row.get(2)?,
-                                custom_key: row.get(3)?,
-                                custom_value: row.get(4)?,
-                                split: row.get(5)?,
-                                fee: row.get::<_, i64>(6)? != 0,
-                            })
-                        })?
-                        .collect::<Result<_, _>>()?
-                } else {
-                    routes
-                };
-                resp.payment_routes = Some(routes);
+                resp.payment_routes = Some(lightning_routes(stored_track_routes(
+                    conn,
+                    &feed_guid,
+                    &track_guid,
+                )?));
+            }
+            "value_blocks" => {
+                resp.value_blocks = Some(value_blocks_from_routes(stored_track_routes(
+                    conn,
+                    &feed_guid,
+                    &track_guid,
+                )?));
             }
             "value_time_splits" => {
                 let mut vts: Vec<VtsResponse> = Vec::new();
@@ -5030,6 +5140,7 @@ fn feed_list_row_to_response(
         updated_at: r.updated_at,
         tracks: None,
         payment_routes: None,
+        value_blocks: None,
         source_links: None,
         source_ids: None,
         source_contributors: None,
