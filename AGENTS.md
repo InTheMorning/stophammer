@@ -17,9 +17,8 @@ delivered ADR 0083.
 Release 0.20.1 of 2026-11-14 is the latest release. The primary gives the
 revision `e881b48`, which is the commit of `v0.20.1` and of `v0.20.1-rc.1`. The
 record `07adf84f-c1fa-47a7-a121-0fb544e859bd` keeps the feed URL of its move of
-2026-11-13. On 2026-11-14, before the promotion, the gossip crawler was up on
-the image `stophammer-crawler:0.20.1-rc.1`. No check of its image after the
-promotion is recorded.
+2026-11-13. On 2026-11-14, after the promotion, the gossip crawler is up on the
+image `stophammer-crawler:0.20.1`.
 
 On 2026-11-12, the start log of release 0.20.0 gave the return cooldown 60 s, a
 limit of 3600 s and a reset after 86400 s. On 2026-11-12, a Studio move test
