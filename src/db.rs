@@ -3623,25 +3623,58 @@ fn track_fields_changed(existing: &Track, new: &Track) -> bool {
         || existing.track_artist_sort != new.track_artist_sort
 }
 
+/// The fields of a recipient that a feed gives, with no row `id`.
+///
+/// The four route records have these fields. One comparison serves each of
+/// them (ADR 0098 §5).
+#[derive(PartialEq)]
+struct RouteContent<'a> {
+    recipient_name: Option<&'a str>,
+    route_type: &'a RouteType,
+    address: &'a str,
+    custom_key: Option<&'a str>,
+    custom_value: Option<&'a str>,
+    split: i64,
+    fee: bool,
+    value_type: Option<&'a str>,
+    value_method: Option<&'a str>,
+    block_index: Option<i64>,
+}
+
+/// Gives the [`RouteContent`] of a route record.
+///
+/// The store writes an empty text for a missing custom field and reads it
+/// back as `None`. A feed can give an empty attribute. The two are equal, so
+/// an empty text becomes `None` here.
+macro_rules! route_content {
+    ($route:expr) => {
+        RouteContent {
+            recipient_name: $route.recipient_name.as_deref(),
+            route_type: &$route.route_type,
+            address: &$route.address,
+            custom_key: $route.custom_key.as_deref().filter(|text| !text.is_empty()),
+            custom_value: $route
+                .custom_value
+                .as_deref()
+                .filter(|text| !text.is_empty()),
+            split: $route.split,
+            fee: $route.fee,
+            value_type: $route.value_type.as_deref(),
+            value_method: $route.value_method.as_deref(),
+            block_index: $route.block_index,
+        }
+    };
+}
+
 /// Compares two sets of feed payment routes by their content fields
 /// (ignoring `id` which is DB-assigned).
 fn feed_routes_changed(existing: &[FeedPaymentRoute], new: &[FeedPaymentRoute]) -> bool {
-    if existing.len() != new.len() {
-        return true;
-    }
     // Compare route-by-route; order matters.
-    existing.iter().zip(new.iter()).any(|(a, b)| {
-        a.recipient_name != b.recipient_name
-            || a.route_type != b.route_type
-            || a.address != b.address
-            || a.custom_key != b.custom_key
-            || a.custom_value != b.custom_value
-            || a.split != b.split
-            || a.fee != b.fee
-            || a.value_type != b.value_type
-            || a.value_method != b.value_method
-            || a.block_index != b.block_index
-    })
+    existing.len() != new.len()
+        || existing
+            .iter()
+            .zip(new)
+            .any(|(a, b)| route_content!(a) != route_content!(b))
 }
 
 fn feed_remote_items_changed(existing: &[FeedRemoteItemRaw], new: &[FeedRemoteItemRaw]) -> bool {
@@ -3659,31 +3692,12 @@ fn feed_remote_items_changed(existing: &[FeedRemoteItemRaw], new: &[FeedRemoteIt
 }
 
 fn feed_list_values_changed(existing: &[FeedListValueRaw], new: &[FeedListValueRaw]) -> bool {
-    if existing.len() != new.len() {
-        return true;
-    }
     // Compare value-by-value; order matters.
-    existing.iter().zip(new.iter()).any(|(a, b)| {
-        a.recipient_name != b.recipient_name
-            || a.route_type != b.route_type
-            || a.address != b.address
-            || a.custom_key != b.custom_key
-            || a.custom_value != b.custom_value
-            || a.split != b.split
-            || a.fee != b.fee
-            || a.position != b.position
-            || a.value_type != b.value_type
-            || a.value_method != b.value_method
-            || a.block_index != b.block_index
-    })
-}
-
-/// Gives the text of a custom field, with an empty text as `None`.
-///
-/// The store writes an empty text for a missing custom field and reads it
-/// back as `None`. A feed can give an empty attribute. The two are equal.
-fn custom_text(value: Option<&str>) -> Option<&str> {
-    value.filter(|text| !text.is_empty())
+    existing.len() != new.len()
+        || existing
+            .iter()
+            .zip(new)
+            .any(|(a, b)| a.position != b.position || route_content!(a) != route_content!(b))
 }
 
 /// Tells if the routes or the value time splits of a known track changed
@@ -3695,23 +3709,17 @@ fn track_payment_fields_changed(
     new_splits: &[ValueTimeSplit],
 ) -> bool {
     let routes_changed = existing_routes.len() != new_routes.len()
-        || existing_routes.iter().zip(new_routes).any(|(a, b)| {
-            a.recipient_name != b.recipient_name
-                || a.route_type != b.route_type
-                || a.address != b.address
-                || custom_text(a.custom_key.as_deref()) != custom_text(b.custom_key.as_deref())
-                || custom_text(a.custom_value.as_deref()) != custom_text(b.custom_value.as_deref())
-                || a.split != b.split
-                || a.fee != b.fee
-                || a.value_type != b.value_type
-                || a.value_method != b.value_method
-                || a.block_index != b.block_index
-        });
+        || existing_routes
+            .iter()
+            .zip(new_routes)
+            .any(|(a, b)| route_content!(a) != route_content!(b));
     let splits_changed = existing_splits.len() != new_splits.len()
         || existing_splits.iter().zip(new_splits).any(|(a, b)| {
             a.position != b.position
                 || a.form != b.form
-                || a.start_time_secs.to_bits() != b.start_time_secs.to_bits()
+                // The store reads `-0.0` back as `0.0`. The sum with `0.0`
+                // makes the two equal.
+                || (a.start_time_secs + 0.0).to_bits() != (b.start_time_secs + 0.0).to_bits()
                 || a.duration_secs != b.duration_secs
                 || a.remote_feed_guid != b.remote_feed_guid
                 || a.remote_item_guid != b.remote_item_guid
@@ -3721,20 +3729,10 @@ fn track_payment_fields_changed(
                 || a.value_method != b.value_method
                 || a.block_index != b.block_index
                 || a.recipients.len() != b.recipients.len()
-                || a.recipients.iter().zip(&b.recipients).any(|(left, right)| {
-                    left.recipient_name != right.recipient_name
-                        || left.route_type != right.route_type
-                        || left.address != right.address
-                        || custom_text(left.custom_key.as_deref())
-                            != custom_text(right.custom_key.as_deref())
-                        || custom_text(left.custom_value.as_deref())
-                            != custom_text(right.custom_value.as_deref())
-                        || left.split != right.split
-                        || left.fee != right.fee
-                        || left.value_type != right.value_type
-                        || left.value_method != right.value_method
-                        || left.block_index != right.block_index
-                })
+                || a.recipients
+                    .iter()
+                    .zip(&b.recipients)
+                    .any(|(left, right)| route_content!(left) != route_content!(right))
         });
     routes_changed || splits_changed
 }

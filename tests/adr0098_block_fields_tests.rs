@@ -386,6 +386,41 @@ async fn route_only_change_emits_track_event_and_no_change_does_not() {
     );
 }
 
+// An empty custom attribute and a start time of `-0.0` read back from the
+// store as `None` and `0.0`. A second ingest of the same data gives no event.
+#[tokio::test]
+async fn empty_custom_field_and_negative_zero_are_no_change() {
+    let db = common::test_db_arc();
+    let st = state(Arc::clone(&db));
+    let mut recipient = route("same", 100, 0, "lightning");
+    recipient["custom_key"] = json!("");
+    recipient["custom_value"] = json!("");
+    let feed_routes = json!([recipient.clone()]);
+    let splits = json!([{
+        "form": "local",
+        "start_time_secs": -0.0,
+        "duration_secs": 10,
+        "value_type": "lightning",
+        "block_index": 0,
+        "recipients": [recipient.clone()]
+    }]);
+    let tracks = track(json!([recipient]), splits);
+    ingest(&st, feed_routes.clone(), tracks.clone(), 1, "music").await;
+    let first = events(&db);
+    ingest(&st, feed_routes, tracks, 2, "music").await;
+    let second = events(&db);
+    for (event_type, subject) in [
+        (EventType::TrackUpserted, TRACK_GUID),
+        (EventType::FeedRoutesReplaced, FEED_GUID),
+    ] {
+        assert_eq!(
+            count_type(&first, &event_type, subject),
+            count_type(&second, &event_type, subject),
+            "the same data signs no second {event_type:?} event"
+        );
+    }
+}
+
 #[tokio::test]
 async fn feed_route_value_type_change_emits_feed_routes_event() {
     let db = common::test_db_arc();
