@@ -74,10 +74,16 @@ change of ADR 0050 §3 on 2026-11-13, a `304` after a permanent redirect.
   phrase change and the prefix match. No decision is recorded
   for the other changes.
 - [ADR 0098](docs/adr/0098-a-value-block-keeps-its-type-and-method.md) is
-  Accepted on 2026-11-14, and its code is not written. It answers
+  Accepted on 2026-11-14. Its code is on `main` of the three repositories, and
+  no release holds it. It answers
   [the research request of 2026-11-13](docs/plans/research-value-block-type-request.md).
-  Until a release delivers it, the parser stores each recipient of a
-  `podcast:value` block that is not `lightning` as a Lightning route.
+  The next release is 0.21.0, and it has migration 0065. A community node
+  upgrades before the primary, because an old node cannot read a route type
+  that is not one of its four names. After the deploy, the refill pass of
+  ADR 0098 §6 must run. The number of feeds with a recipient of
+  `type="lightning"` is not known. `payment_routes` does not give such a
+  recipient after its feed is read again, and the refill export prints the
+  count.
 - ADR 0100 item 22: after a restart of the primary, the first search with no `q`
   can be slow, because the database pages are not in memory. On 2026-10-25,
   the first `type=track&host=wavlake.com` took 14.5 s, and the next ones took
@@ -113,8 +119,8 @@ change of ADR 0050 §3 on 2026-11-13, a `304` after a permanent redirect.
   URL form, or through the cache replay with
   `export-feed-cache-ndjson.py --self-links` (ADR 0052).
 - A cached body replays with `export-feed-cache-ndjson.py` and the `ndjson`
-  mode, with no fetch. Use `--copies` for the copy rows, and the default for
-  the source URLs.
+  mode, with no fetch. Use `--copies` for the copy rows, `--value-blocks` for
+  the refill pass of ADR 0098 §6, and the default for the source URLs.
 
 ### Client Requests
 
