@@ -2,14 +2,14 @@
 
 ## Status
 
-Answered by [ADR 0098](../adr/0098-a-value-block-keeps-its-type-and-method.md), Proposed - 2026-11-13.
+Answered by [ADR 0098](../adr/0098-a-value-block-keeps-its-type-and-method.md), Accepted - 2026-11-14.
 
 | Section | Status | Owner or blocker |
 |---|---|---|
-| V1, record the type and the method of each value block | Proposed | ADR 0098 |
-| V2, keep the recipient type that the feed gives | Proposed | ADR 0098 |
-| V3, keep the routes of two value blocks apart | Proposed | ADR 0098 |
-| V4, give the method to API clients | Proposed | ADR 0098 |
+| V1, record the type and the method of each value block | Accepted, not released | ADR 0098 |
+| V2, keep the recipient type that the feed gives | Accepted, not released | ADR 0098 |
+| V3, keep the routes of two value blocks apart | Accepted, not released | ADR 0098 |
+| V4, give the method to API clients | Accepted, not released | ADR 0098 |
 
 This request comes from the research repository at
 `~/build/musicindex-research`, commit `e69bfb9`. That repository has no Git

@@ -1,7 +1,7 @@
 # ADR 0098: A Value Block Keeps Its Type And Its Method
 
 ## Status
-Proposed on 2026-11-13. The operator accepts it. It answers
+Accepted on 2026-11-14. No release holds it. It answers
 [the research request of 2026-11-13](../plans/research-value-block-type-request.md),
 V1 to V4 and its three questions. No task packet exists.
 

@@ -35,7 +35,8 @@ release promotes its candidate, and
 version number.
 
 Each ADR in [the index](docs/adr/README.md) with the status Accepted is
-in a release. The primary sets
+in a release, but ADR 0098 and the `medium` rule of ADR 0100 item 9 of
+2026-11-14 are in no release. The primary sets
 `SOURCE_GONE_HOSTS=wavlake.com` (ADR 0067).
 [ADR 0095](docs/adr/0095-a-release-on-two-platforms-is-two-feeds.md) changes no
 code, so no release carries it.
@@ -73,7 +74,7 @@ change of ADR 0050 §3 on 2026-11-13, a `304` after a permanent redirect.
   phrase change and the prefix match. No decision is recorded
   for the other changes.
 - [ADR 0098](docs/adr/0098-a-value-block-keeps-its-type-and-method.md) is
-  Proposed. It answers
+  Accepted on 2026-11-14, and its code is not written. It answers
   [the research request of 2026-11-13](docs/plans/research-value-block-type-request.md).
   Until a release delivers it, the parser stores each recipient of a
   `podcast:value` block that is not `lightning` as a Lightning route.
