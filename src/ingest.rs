@@ -306,6 +306,12 @@ pub struct IngestPaymentRoute {
     pub custom_value: Option<String>,
     pub split: i64,
     pub fee: bool,
+    #[serde(default)]
+    pub value_type: Option<String>,
+    #[serde(default)]
+    pub value_method: Option<String>,
+    #[serde(default)]
+    pub block_index: Option<i64>,
 }
 
 /// Ingest-time value-time-split entry before a DB row ID is assigned.
@@ -335,6 +341,12 @@ pub struct IngestValueTimeSplit {
     /// The recipients of a local split, in source order (ADR 0073 §2).
     #[serde(default)]
     pub recipients: Vec<IngestPaymentRoute>,
+    #[serde(default)]
+    pub value_type: Option<String>,
+    #[serde(default)]
+    pub value_method: Option<String>,
+    #[serde(default)]
+    pub block_index: Option<i64>,
 }
 
 /// Response returned to the crawler after a `POST /ingest/feed` attempt.

@@ -1725,7 +1725,10 @@ fn ingest_request_example() -> Value {
                 "custom_key": "7629169",
                 "custom_value": "podcast-guid",
                 "split": 100,
-                "fee": false
+                "fee": false,
+                "value_type": "lightning",
+                "value_method": "keysend",
+                "block_index": 0
             }],
             "tracks": [{
                 "track_guid": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
@@ -1752,8 +1755,38 @@ fn ingest_request_example() -> Value {
                 "persons": [],
                 "entity_ids": [],
                 "links": [],
-                "payment_routes": [],
-                "value_time_splits": [],
+                "payment_routes": [{
+                    "recipient_name": "Artist Name",
+                    "route_type": "node",
+                    "address": "02abc...lightning-pubkey",
+                    "custom_key": "7629169",
+                    "custom_value": "podcast-guid",
+                    "split": 100,
+                    "fee": false,
+                    "value_type": "lightning",
+                    "value_method": "keysend",
+                    "block_index": 0
+                }],
+                "value_time_splits": [{
+                    "form": "local",
+                    "start_time_secs": 0,
+                    "duration_secs": 60,
+                    "value_type": "lightning",
+                    "value_method": "keysend",
+                    "block_index": 0,
+                    "recipients": [{
+                        "recipient_name": "Artist Name",
+                        "route_type": "node",
+                        "address": "02abc...lightning-pubkey",
+                        "custom_key": "7629169",
+                        "custom_value": "podcast-guid",
+                        "split": 100,
+                        "fee": false,
+                        "value_type": "lightning",
+                        "value_method": "keysend",
+                        "block_index": 0
+                    }]
+                }],
                 "transcripts": []
             }],
             "live_items": [{

@@ -741,6 +741,9 @@ fn build_value_time_splits(
                 custom_value: r.custom_value.clone(),
                 split: r.split,
                 fee: r.fee,
+                value_type: r.value_type.clone(),
+                value_method: r.value_method.clone(),
+                block_index: r.block_index,
             })
             .collect();
         out.push(model::ValueTimeSplit {
@@ -757,6 +760,9 @@ fn build_value_time_splits(
             remote_percentage: v.remote_percentage,
             recipients,
             created_at: now,
+            value_type: v.value_type.clone(),
+            value_method: v.value_method.clone(),
+            block_index: v.block_index,
         });
     }
     out
@@ -3506,6 +3512,9 @@ async fn handle_ingest_feed(
                     custom_value: r.custom_value.clone(),
                     split: r.split,
                     fee: r.fee,
+                    value_type: r.value_type.clone(),
+                    value_method: r.value_method.clone(),
+                    block_index: r.block_index,
                 })
                 .collect()
         };
@@ -3531,6 +3540,9 @@ async fn handle_ingest_feed(
                         reason = "payment routes per feed are bounded by practical limits"
                     )]
                     position: idx as i64,
+                    value_type: r.value_type.clone(),
+                    value_method: r.value_method.clone(),
+                    block_index: r.block_index,
                 })
                 .collect()
         } else {
@@ -3762,6 +3774,9 @@ async fn handle_ingest_feed(
                     custom_value: r.custom_value.clone(),
                     split: r.split,
                     fee: r.fee,
+                    value_type: r.value_type.clone(),
+                    value_method: r.value_method.clone(),
+                    block_index: r.block_index,
                 })
                 .collect();
 

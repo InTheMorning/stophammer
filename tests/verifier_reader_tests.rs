@@ -51,6 +51,10 @@ fn sample_request() -> IngestFeedRequest {
                 custom_value: None,
                 split: 100,
                 fee: false,
+
+                value_type: None,
+                value_method: None,
+                block_index: None,
             }],
             live_items: vec![],
             blocks: vec![],

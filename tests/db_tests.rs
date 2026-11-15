@@ -375,6 +375,10 @@ fn route_writes_normalize_empty_custom_fields_but_reads_stay_none() {
         custom_value: None,
         split: 100,
         fee: false,
+
+        value_type: None,
+        value_method: None,
+        block_index: None,
     };
     stophammer::db::replace_payment_routes(&conn, "track-route-normalize", &[track_route])
         .expect("replace track routes");
@@ -389,6 +393,10 @@ fn route_writes_normalize_empty_custom_fields_but_reads_stay_none() {
         custom_value: None,
         split: 100,
         fee: false,
+
+        value_type: None,
+        value_method: None,
+        block_index: None,
     };
     stophammer::db::replace_feed_payment_routes(&conn, "feed-route-normalize", &[feed_route])
         .expect("replace feed routes");

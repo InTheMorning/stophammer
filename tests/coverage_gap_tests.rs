@@ -764,6 +764,10 @@ fn v4v_payment_verifier_pass() {
                 custom_value: None,
                 split: 100,
                 fee: false,
+
+                value_type: None,
+                value_method: None,
+                block_index: None,
             }],
             live_items: vec![],
             blocks: vec![],
@@ -1031,6 +1035,10 @@ fn payment_route_sum_verifier_pass() {
                         custom_value: None,
                         split: 60,
                         fee: false,
+
+                        value_type: None,
+                        value_method: None,
+                        block_index: None,
                     },
                     stophammer::ingest::IngestPaymentRoute {
                         recipient_name: None,
@@ -1040,6 +1048,10 @@ fn payment_route_sum_verifier_pass() {
                         custom_value: None,
                         split: 40,
                         fee: false,
+
+                        value_type: None,
+                        value_method: None,
+                        block_index: None,
                     },
                 ],
                 value_time_splits: vec![],
@@ -1119,6 +1131,10 @@ fn payment_route_sum_verifier_fail_not_100() {
                         custom_value: None,
                         split: 60,
                         fee: false,
+
+                        value_type: None,
+                        value_method: None,
+                        block_index: None,
                     },
                     stophammer::ingest::IngestPaymentRoute {
                         recipient_name: None,
@@ -1128,6 +1144,10 @@ fn payment_route_sum_verifier_fail_not_100() {
                         custom_value: None,
                         split: 60,
                         fee: false,
+
+                        value_type: None,
+                        value_method: None,
+                        block_index: None,
                     },
                 ],
                 value_time_splits: vec![],

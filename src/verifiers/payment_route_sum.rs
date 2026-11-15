@@ -2,6 +2,8 @@
 
 //! Verifier: payment route splits must sum to 100.
 
+use std::collections::BTreeMap;
+
 use crate::verify::{IngestContext, Verifier, VerifyResult};
 
 /// Rejects submissions where payment route splits for any track do not sum to 100.
@@ -24,10 +26,13 @@ impl Verifier for PaymentRouteSumVerifier {
             if track.payment_routes.is_empty() {
                 continue;
             }
-            let sum: i64 = track.payment_routes.iter().map(|r| r.split).sum();
-            if sum != 100 {
+            let mut sums = BTreeMap::new();
+            for route in &track.payment_routes {
+                *sums.entry(route.block_index).or_insert(0_i64) += route.split;
+            }
+            if let Some((block_index, sum)) = sums.iter().find(|(_, sum)| **sum != 100) {
                 return VerifyResult::Fail(format!(
-                    "track '{}' payment splits sum to {sum} (expected 100)",
+                    "track '{}' payment block {block_index:?} splits sum to {sum} (expected 100)",
                     track.track_guid
                 ));
             }

@@ -206,6 +206,12 @@ pub struct PaymentRoute {
     pub split: i64,
     /// When `true`, this recipient is an app-fee destination, not an artist split.
     pub fee: bool,
+    #[serde(default)]
+    pub value_type: Option<String>,
+    #[serde(default)]
+    pub value_method: Option<String>,
+    #[serde(default)]
+    pub block_index: Option<i64>,
 }
 
 /// Feed-level payment route (fallback when a track has no per-track routes).
@@ -220,6 +226,12 @@ pub struct FeedPaymentRoute {
     pub custom_value: Option<String>,
     pub split: i64,
     pub fee: bool,
+    #[serde(default)]
+    pub value_type: Option<String>,
+    #[serde(default)]
+    pub value_method: Option<String>,
+    #[serde(default)]
+    pub block_index: Option<i64>,
 }
 
 /// Value block of a `musicL` feed, stored as source data (ADR 0060 §4).
@@ -236,6 +248,12 @@ pub struct FeedListValueRaw {
     pub split: i64,
     pub fee: bool,
     pub position: i64,
+    #[serde(default)]
+    pub value_type: Option<String>,
+    #[serde(default)]
+    pub value_method: Option<String>,
+    #[serde(default)]
+    pub block_index: Option<i64>,
 }
 
 // ── route-history recipient set (ADR 0053 Section 4) ────────────────────────
@@ -330,6 +348,12 @@ pub struct ValueTimeSplitRecipient {
     pub custom_value: Option<String>,
     pub split: i64,
     pub fee: bool,
+    #[serde(default)]
+    pub value_type: Option<String>,
+    #[serde(default)]
+    pub value_method: Option<String>,
+    #[serde(default)]
+    pub block_index: Option<i64>,
 }
 
 /// A value time split with the values that its source states (ADR 0073 §2
@@ -370,6 +394,12 @@ pub struct ValueTimeSplit {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub recipients: Vec<ValueTimeSplitRecipient>,
     pub created_at: i64,
+    #[serde(default)]
+    pub value_type: Option<String>,
+    #[serde(default)]
+    pub value_method: Option<String>,
+    #[serde(default)]
+    pub block_index: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -479,6 +479,10 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
         custom_value: None,
         split: 95,
         fee: false,
+
+        value_type: None,
+        value_method: None,
+        block_index: None,
     };
 
     // Issue-SEQ-INTEGRITY — 2026-03-14: pass signer, EventRow no longer has signed_by/signature.

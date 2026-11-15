@@ -1260,7 +1260,7 @@ pub fn get_payment_routes_for_track(
 ) -> Result<Vec<PaymentRoute>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, track_guid, feed_guid, recipient_name, route_type, address, \
-         NULLIF(custom_key, ''), NULLIF(custom_value, ''), split, fee \
+         NULLIF(custom_key, ''), NULLIF(custom_value, ''), split, fee, value_type, value_method, block_index \
          FROM payment_routes WHERE track_guid = ?1",
     )?;
     let rows = stmt.query_map(params![track_guid], |row| {
@@ -1277,6 +1277,9 @@ pub fn get_payment_routes_for_track(
             custom_value: row.get(7)?,
             split: row.get(8)?,
             fee: fee_i != 0,
+            value_type: row.get(10)?,
+            value_method: row.get(11)?,
+            block_index: row.get(12)?,
         })
     })?;
     let mut result = Vec::new();
@@ -1293,7 +1296,7 @@ pub fn get_payment_routes_for_feed_track(
 ) -> Result<Vec<PaymentRoute>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, track_guid, feed_guid, recipient_name, route_type, address, \
-         NULLIF(custom_key, ''), NULLIF(custom_value, ''), split, fee \
+         NULLIF(custom_key, ''), NULLIF(custom_value, ''), split, fee, value_type, value_method, block_index \
          FROM payment_routes WHERE feed_guid = ?1 AND track_guid = ?2",
     )?;
     let rows = stmt.query_map(params![feed_guid, track_guid], |row| {
@@ -1310,6 +1313,9 @@ pub fn get_payment_routes_for_feed_track(
             custom_value: row.get(7)?,
             split: row.get(8)?,
             fee: fee_i != 0,
+            value_type: row.get(10)?,
+            value_method: row.get(11)?,
+            block_index: row.get(12)?,
         })
     })?;
     rows.collect::<Result<_, _>>().map_err(DbError::from)
@@ -1319,7 +1325,7 @@ pub fn get_payment_routes_for_feed_track(
 /// [`value_time_split_from_row`] (ADR 0073 §2).
 const VALUE_TIME_SPLIT_COLUMNS: &str = "id, source_feed_guid, source_track_guid, position, form, \
      start_time_secs, duration_secs, remote_feed_guid, remote_item_guid, \
-     remote_start_time_secs, remote_percentage, created_at";
+     remote_start_time_secs, remote_percentage, created_at, value_type, value_method, block_index";
 
 /// The SQL that deletes the recipients of each split of one track (ADR 0073
 /// §2). `?1` is the feed GUID and `?2` is the track GUID. Run it before each
@@ -1351,6 +1357,9 @@ fn value_time_split_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ValueT
         remote_percentage: row.get(10)?,
         recipients: Vec::new(),
         created_at: row.get(11)?,
+        value_type: row.get(12)?,
+        value_method: row.get(13)?,
+        block_index: row.get(14)?,
     })
 }
 
@@ -1361,7 +1370,7 @@ fn attach_value_time_split_recipients(
 ) -> Result<(), DbError> {
     let mut stmt = conn.prepare(
         "SELECT recipient_name, route_type, address, NULLIF(custom_key, ''), \
-         NULLIF(custom_value, ''), split, fee \
+         NULLIF(custom_value, ''), split, fee, value_type, value_method, block_index \
          FROM value_time_split_recipients WHERE split_id = ?1 ORDER BY position, id",
     )?;
     for split in splits.iter_mut() {
@@ -1379,6 +1388,9 @@ fn attach_value_time_split_recipients(
                 custom_value: row.get(4)?,
                 split: row.get(5)?,
                 fee: fee_i != 0,
+                value_type: row.get(7)?,
+                value_method: row.get(8)?,
+                block_index: row.get(9)?,
             })
         })?;
         split.recipients = rows.collect::<Result<_, _>>()?;
@@ -1397,8 +1409,8 @@ fn insert_value_time_split(
     conn.execute(
         "INSERT INTO value_time_splits (source_feed_guid, source_track_guid, position, form, \
          start_time_secs, duration_secs, remote_feed_guid, remote_item_guid, \
-         remote_start_time_secs, remote_percentage, created_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+         remote_start_time_secs, remote_percentage, created_at, value_type, value_method, block_index) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             source_feed_guid,
             source_track_guid,
@@ -1411,6 +1423,9 @@ fn insert_value_time_split(
             s.remote_start_time_secs,
             s.remote_percentage,
             s.created_at,
+            s.value_type,
+            s.value_method,
+            s.block_index,
         ],
     )?;
     let split_id = conn.last_insert_rowid();
@@ -1418,8 +1433,8 @@ fn insert_value_time_split(
         let route_type = r.route_type.as_str();
         conn.execute(
             "INSERT INTO value_time_split_recipients (split_id, position, recipient_name, \
-             route_type, address, custom_key, custom_value, split, fee) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             route_type, address, custom_key, custom_value, split, fee, value_type, value_method, block_index) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 split_id,
                 i64::try_from(position).unwrap_or(i64::MAX),
@@ -1430,6 +1445,9 @@ fn insert_value_time_split(
                 r.custom_value.as_deref().unwrap_or(""),
                 r.split,
                 i64::from(r.fee),
+                r.value_type,
+                r.value_method,
+                r.block_index,
             ],
         )?;
     }
@@ -1690,8 +1708,8 @@ pub fn replace_payment_routes(
         let route_type = r.route_type.as_str();
         conn.execute(
             "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, \
-             custom_key, custom_value, split, fee) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             custom_key, custom_value, split, fee, value_type, value_method, block_index) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 r.track_guid,
                 r.feed_guid,
@@ -1702,6 +1720,9 @@ pub fn replace_payment_routes(
                 r.custom_value.as_deref().unwrap_or(""),
                 r.split,
                 i64::from(r.fee),
+                r.value_type,
+                r.value_method,
+                r.block_index,
             ],
         )?;
     }
@@ -1722,8 +1743,8 @@ pub fn replace_payment_routes_for_feed_track(
         let route_type = r.route_type.as_str();
         conn.execute(
             "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, \
-             custom_key, custom_value, split, fee) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             custom_key, custom_value, split, fee, value_type, value_method, block_index) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 track_guid,
                 feed_guid,
@@ -1734,6 +1755,9 @@ pub fn replace_payment_routes_for_feed_track(
                 r.custom_value.as_deref().unwrap_or(""),
                 r.split,
                 i64::from(r.fee),
+                r.value_type,
+                r.value_method,
+                r.block_index,
             ],
         )?;
     }
@@ -1760,8 +1784,8 @@ pub fn replace_feed_payment_routes(
         let route_type = r.route_type.as_str();
         conn.execute(
             "INSERT INTO feed_payment_routes (feed_guid, recipient_name, route_type, address, \
-             custom_key, custom_value, split, fee) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+             custom_key, custom_value, split, fee, value_type, value_method, block_index) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 r.feed_guid,
                 r.recipient_name,
@@ -1771,6 +1795,9 @@ pub fn replace_feed_payment_routes(
                 r.custom_value.as_deref().unwrap_or(""),
                 r.split,
                 i64::from(r.fee),
+                r.value_type,
+                r.value_method,
+                r.block_index,
             ],
         )?;
     }
@@ -1795,8 +1822,8 @@ pub fn replace_feed_list_value_raw(
         let route_type = v.route_type.as_str();
         conn.execute(
             "INSERT INTO feed_list_value_raw (feed_guid, recipient_name, route_type, address, \
-             custom_key, custom_value, split, fee, position) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             custom_key, custom_value, split, fee, position, value_type, value_method, block_index) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 &v.feed_guid,
                 &v.recipient_name,
@@ -1807,6 +1834,9 @@ pub fn replace_feed_list_value_raw(
                 v.split,
                 i64::from(v.fee),
                 v.position,
+                v.value_type,
+                v.value_method,
+                v.block_index,
             ],
         )?;
     }
@@ -3485,7 +3515,7 @@ pub fn get_feed_payment_routes_for_feed(
 ) -> Result<Vec<FeedPaymentRoute>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, feed_guid, recipient_name, route_type, address, \
-         NULLIF(custom_key, ''), NULLIF(custom_value, ''), split, fee \
+         NULLIF(custom_key, ''), NULLIF(custom_value, ''), split, fee, value_type, value_method, block_index \
          FROM feed_payment_routes WHERE feed_guid = ?1",
     )?;
     let rows = stmt.query_map(params![feed_guid], |row| {
@@ -3501,6 +3531,9 @@ pub fn get_feed_payment_routes_for_feed(
             custom_value: row.get(6)?,
             split: row.get(7)?,
             fee: fee_i != 0,
+            value_type: row.get(9)?,
+            value_method: row.get(10)?,
+            block_index: row.get(11)?,
         })
     })?;
     let mut result = Vec::new();
@@ -3515,13 +3548,13 @@ pub fn get_feed_payment_routes_for_feed(
 /// # Errors
 ///
 /// Returns [`DbError`] if the SQL query fails.
-fn get_feed_list_value_raw_for_feed(
+pub fn get_feed_list_value_raw_for_feed(
     conn: &Connection,
     feed_guid: &str,
 ) -> Result<Vec<FeedListValueRaw>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, feed_guid, recipient_name, route_type, address, \
-         NULLIF(custom_key, ''), NULLIF(custom_value, ''), split, fee, position \
+         NULLIF(custom_key, ''), NULLIF(custom_value, ''), split, fee, position, value_type, value_method, block_index \
          FROM feed_list_value_raw WHERE feed_guid = ?1 ORDER BY position",
     )?;
     let rows = stmt.query_map(params![feed_guid], |row| {
@@ -3538,6 +3571,9 @@ fn get_feed_list_value_raw_for_feed(
             split: row.get(7)?,
             fee: fee_i != 0,
             position: row.get(9)?,
+            value_type: row.get(10)?,
+            value_method: row.get(11)?,
+            block_index: row.get(12)?,
         })
     })?;
     let mut result = Vec::new();
@@ -3602,6 +3638,9 @@ fn feed_routes_changed(existing: &[FeedPaymentRoute], new: &[FeedPaymentRoute]) 
             || a.custom_value != b.custom_value
             || a.split != b.split
             || a.fee != b.fee
+            || a.value_type != b.value_type
+            || a.value_method != b.value_method
+            || a.block_index != b.block_index
     })
 }
 
@@ -3633,7 +3672,71 @@ fn feed_list_values_changed(existing: &[FeedListValueRaw], new: &[FeedListValueR
             || a.split != b.split
             || a.fee != b.fee
             || a.position != b.position
+            || a.value_type != b.value_type
+            || a.value_method != b.value_method
+            || a.block_index != b.block_index
     })
+}
+
+/// Gives the text of a custom field, with an empty text as `None`.
+///
+/// The store writes an empty text for a missing custom field and reads it
+/// back as `None`. A feed can give an empty attribute. The two are equal.
+fn custom_text(value: Option<&str>) -> Option<&str> {
+    value.filter(|text| !text.is_empty())
+}
+
+/// Tells if the routes or the value time splits of a known track changed
+/// (ADR 0098 §5). It does not compare the row `id`.
+fn track_payment_fields_changed(
+    existing_routes: &[PaymentRoute],
+    new_routes: &[PaymentRoute],
+    existing_splits: &[ValueTimeSplit],
+    new_splits: &[ValueTimeSplit],
+) -> bool {
+    let routes_changed = existing_routes.len() != new_routes.len()
+        || existing_routes.iter().zip(new_routes).any(|(a, b)| {
+            a.recipient_name != b.recipient_name
+                || a.route_type != b.route_type
+                || a.address != b.address
+                || custom_text(a.custom_key.as_deref()) != custom_text(b.custom_key.as_deref())
+                || custom_text(a.custom_value.as_deref()) != custom_text(b.custom_value.as_deref())
+                || a.split != b.split
+                || a.fee != b.fee
+                || a.value_type != b.value_type
+                || a.value_method != b.value_method
+                || a.block_index != b.block_index
+        });
+    let splits_changed = existing_splits.len() != new_splits.len()
+        || existing_splits.iter().zip(new_splits).any(|(a, b)| {
+            a.position != b.position
+                || a.form != b.form
+                || a.start_time_secs.to_bits() != b.start_time_secs.to_bits()
+                || a.duration_secs != b.duration_secs
+                || a.remote_feed_guid != b.remote_feed_guid
+                || a.remote_item_guid != b.remote_item_guid
+                || a.remote_start_time_secs != b.remote_start_time_secs
+                || a.remote_percentage != b.remote_percentage
+                || a.value_type != b.value_type
+                || a.value_method != b.value_method
+                || a.block_index != b.block_index
+                || a.recipients.len() != b.recipients.len()
+                || a.recipients.iter().zip(&b.recipients).any(|(left, right)| {
+                    left.recipient_name != right.recipient_name
+                        || left.route_type != right.route_type
+                        || left.address != right.address
+                        || custom_text(left.custom_key.as_deref())
+                            != custom_text(right.custom_key.as_deref())
+                        || custom_text(left.custom_value.as_deref())
+                            != custom_text(right.custom_value.as_deref())
+                        || left.split != right.split
+                        || left.fee != right.fee
+                        || left.value_type != right.value_type
+                        || left.value_method != right.value_method
+                        || left.block_index != right.block_index
+                })
+        });
+    routes_changed || splits_changed
 }
 
 fn track_remote_items_changed(existing: &[TrackRemoteItemRaw], new: &[TrackRemoteItemRaw]) -> bool {
@@ -4172,9 +4275,21 @@ fn build_changed_events(
         .collect();
 
     for (track, routes, vts, track_remote_items) in tracks {
-        let is_new_or_changed = existing_map
-            .get(track.track_guid.as_str())
-            .is_none_or(|existing| track_fields_changed(existing, track));
+        let existing_track = existing_map.get(track.track_guid.as_str());
+        let is_new_or_changed = match existing_track {
+            None => true,
+            Some(existing) if track_fields_changed(existing, track) => true,
+            Some(_) => {
+                let stored_routes =
+                    get_payment_routes_for_feed_track(conn, &track.feed_guid, &track.track_guid)?;
+                let stored_splits = get_value_time_splits_for_feed_track(
+                    conn,
+                    &track.feed_guid,
+                    &track.track_guid,
+                )?;
+                track_payment_fields_changed(&stored_routes, routes, &stored_splits, vts)
+            }
+        };
 
         if is_new_or_changed {
             event_rows.push(build_track_upserted_event(
@@ -6931,8 +7046,8 @@ pub fn ingest_transaction(
         let route_type = r.route_type.as_str();
         tx.execute(
             "INSERT INTO feed_payment_routes (feed_guid, recipient_name, route_type, address, \
-             custom_key, custom_value, split, fee) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+             custom_key, custom_value, split, fee, value_type, value_method, block_index) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 r.feed_guid,
                 r.recipient_name,
@@ -6942,6 +7057,9 @@ pub fn ingest_transaction(
                 r.custom_value.as_deref().unwrap_or(""),
                 r.split,
                 i64::from(r.fee),
+                r.value_type,
+                r.value_method,
+                r.block_index,
             ],
         )?;
     }
@@ -7252,8 +7370,8 @@ pub fn ingest_transaction(
             let route_type = r.route_type.as_str();
             tx.execute(
                 "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, \
-                 custom_key, custom_value, split, fee) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                 custom_key, custom_value, split, fee, value_type, value_method, block_index) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                 params![
                     &track.track_guid,
                     &track.feed_guid,
@@ -7264,6 +7382,9 @@ pub fn ingest_transaction(
                     r.custom_value.as_deref().unwrap_or(""),
                     r.split,
                     i64::from(r.fee),
+                    r.value_type,
+                    r.value_method,
+                    r.block_index,
                 ],
             )?;
         }
