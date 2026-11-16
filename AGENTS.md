@@ -98,6 +98,9 @@ change of ADR 0050 §3 on 2026-11-13, a `304` after a permanent redirect.
   Accepted on 2026-11-16. It lets a publisher feed list `musicL` feeds. Its
   code is on `main` of `stophammer` and `stophammer-crawler`, and no release
   holds it.
+- [ADR 0102](docs/adr/0102-a-publisher-view-shows-its-playlists.md) is
+  Proposed on 2026-11-16. It shows the playlists of a publisher feed in the
+  read view, for a request of musicindex.org and HitIt. No code is written.
 - A restart of the gossip crawler reads many cold pages of the podping archive
   in its first seconds. This costs only disk reads, and no decision is open.
 

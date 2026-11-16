@@ -42,6 +42,8 @@ Accepted
   the link facts of a search row.
   [ADR 0100](0100-the-search.md) for the search index, `q`, the filters and the
   rank. ADR 0044 §4 for a `v1` addition.
+- Changed by: [ADR 0102](0102-a-publisher-view-shows-its-playlists.md) §3
+  and §7, for items 14 and 51. Proposed on 2026-11-16.
 
 ## Date
 2026-11-14

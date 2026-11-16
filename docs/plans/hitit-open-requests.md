@@ -2,7 +2,7 @@
 
 ## Status
 
-Open - 2026-09-25. Updated on 2026-11-10: Stophammer answers item 1 of request 11, and item 2 stays a draft. Updated on 2026-11-11: release 0.19.0 gives requests 14 and 15 and item 1 of request 11. This document consolidates each open request from the HitIt client.
+Open - 2026-09-25. Updated on 2026-11-10: Stophammer answers item 1 of request 11, and item 2 stays a draft. Updated on 2026-11-11: release 0.19.0 gives requests 14 and 15 and item 1 of request 11. Updated on 2026-11-16: request 16 is open, and Stophammer answers it with ADR 0102. This document consolidates each open request from the HitIt client.
 The Stophammer repository and the HitIt repository each hold a copy at `docs/plans/hitit-open-requests.md`. Update both copies together.
 
 This document binds nothing in Stophammer. Stophammer records each decision in its own ADR.
@@ -34,6 +34,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 13 | A total for each list of feeds and names | API field addition | Draft - 2026-11-05. Not sent. HitIt ADR 0098 Decision 4 shows no count for All until a total exists |
 | 14 | The title filter of a track and the kind filter of unknown feeds | Search correction and API parameter addition | Answered - 2026-11-07. Part 1: Stophammer ADR 0085 is built and not released. Part 2 is declined, and the answer gives the filters that an app sends |
 | 15 | A sort direction for each list of feeds and names | API parameter addition | Delivered - 2026-11-07 |
+| 16 | Playlist links in the publisher view | API field and route addition | Answered - 2026-11-16. ADR 0102 is Proposed |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
 
@@ -440,6 +441,21 @@ The v4vmm operator sent this request on 2026-11-06. Until Stophammer answers, `k
 Stophammer owns the name and the form of each parameter. The filters and the row content of each route do not change.
 
 **Status.** Delivered - 2026-11-07. The HitIt operator added this request. The live node gives `reverse=true` on the three list routes and `sort` and `reverse` on `/v1/search`, under the capability `sort`. The stored contract 0.19.0 has each parameter. A reversed list keeps its sequence across the next page.
+
+### 16. Playlist Links In The Publisher View
+
+**What happens.** ADR 0101 lets the index hold a publisher feed that lists `musicL` feeds. The read view gives no row for such a link. A playlist row of a list does not name its curator, and no route lists the curators.
+
+**Request.** The orchestrator session sent it on 2026-11-16 for musicindex.org and HitIt. The operator made three choices on 2026-11-16. The suite shows a curator relation in full. Each curator comes first with its confirmed playlists, then "Other playlists". Each confirmed publisher link of a playlist counts, not only `rel="curator"`.
+
+1. On a publisher feed, `include=publisher` gives one row for each `musicL` item, with the fields of a `publisher_to_music` row.
+2. On a playlist, the row of its publisher reference gets `two_way_validated` and `role_agreement`, as for a music link.
+3. A playlist is not a release. A separate count of the confirmed playlist links goes on the publisher feed read and on the `type=publisher` search row.
+4. The change only adds to `v1`.
+5. Each `musicL` row of `GET /v1/feeds/recent` and `GET /v1/feeds/by-name` gives its confirmed publisher feed, or null.
+6. A list of the publisher feeds with a minimum of one confirmed playlist link, with the count, newest playlist first.
+
+**Status.** Answered - 2026-11-16. [Stophammer ADR 0102](../adr/0102-a-publisher-view-shows-its-playlists.md) is Proposed. It gives the direction `publisher_to_playlist`, the field `two_way_playlist_link_count`, the field `confirmed_publisher`, the route `GET /v1/feeds/playlist-publishers` and the capability `playlist_links`. No code is written.
 
 ## Stophammer Answers - 2026-09-25
 

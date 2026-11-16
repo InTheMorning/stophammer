@@ -4,7 +4,7 @@
 
 Open - 2026-09-25. Updated on 2026-10-21: requests 1 to 15, 19 and 20 are
 closed. Updated on 2026-10-25: release 0.16.0 deployed requests 17 and 18 (ADR
-0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, release 0.19.0 gives it, and requests 23 to 25 are open. Requests 26 and 27 are open. Updated on 2026-11-08: Stophammer answers requests 27 to 30. On 2026-11-08 the live node gives request 30, and request 30 is closed. Stophammer answers request 22. Updated on 2026-11-10: Stophammer answers requests 23, 24 and 26, and request 24 is closed. Updated on 2026-11-11: release 0.19.0 gives requests 21, 22, 23 and 25 to 30. This document consolidates each open request from the
+0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, release 0.19.0 gives it, and requests 23 to 25 are open. Requests 26 and 27 are open. Updated on 2026-11-08: Stophammer answers requests 27 to 30. On 2026-11-08 the live node gives request 30, and request 30 is closed. Stophammer answers request 22. Updated on 2026-11-10: Stophammer answers requests 23, 24 and 26, and request 24 is closed. Updated on 2026-11-11: release 0.19.0 gives requests 21, 22, 23 and 25 to 30. Updated on 2026-11-16: request 31 is open, and Stophammer answers it with ADR 0102. This document consolidates each open request from the
 musicindex.org web client: the search site (`search.html`) and the API console
 (`api.html`).
 
@@ -62,6 +62,7 @@ names the requests that the two clients share.
 | 28 | A release date for each artist and label | API parameter addition | Live in release 0.19.0 on 2026-11-11 (ADR 0091) |
 | 29 | The artist name of a publisher row of the artist list | API field addition | Live in release 0.19.0 on 2026-11-11 (ADR 0091 §1a) |
 | 30 | The releases of an artist row by track count | API field addition | Closed on 2026-11-08. Live in release 0.19.0 on 2026-11-11 (ADR 0092) |
+| 31 | Playlist links in the publisher view | API field and route addition | Answered on 2026-11-16. ADR 0102 is Proposed |
 
 ### 1. Summary Fields On Each `remote_items` Entry
 
@@ -861,6 +862,21 @@ nothing more.
 
 The test case: jSmovie gives `{"1": 17}`. The artist feed OLAMIDE (`ff6c8ef7-e3d5-47bf-9cfb-e50c51597424`, 52
 confirmed releases) is a case with more than one track count.
+
+### 31. Playlist Links In The Publisher View
+
+**What happens.** ADR 0101 lets the index hold a publisher feed that lists `musicL` feeds. The read view gives no row for such a link. A playlist row of a list does not name its curator, and no route lists the curators.
+
+**Request.** The orchestrator session sent it on 2026-11-16 for musicindex.org and HitIt. The operator made three choices on 2026-11-16. The suite shows a curator relation in full. Each curator comes first with its confirmed playlists, then "Other playlists". Each confirmed publisher link of a playlist counts, not only `rel="curator"`.
+
+1. On a publisher feed, `include=publisher` gives one row for each `musicL` item, with the fields of a `publisher_to_music` row.
+2. On a playlist, the row of its publisher reference gets `two_way_validated` and `role_agreement`, as for a music link.
+3. A playlist is not a release. A separate count of the confirmed playlist links goes on the publisher feed read and on the `type=publisher` search row.
+4. The change only adds to `v1`.
+5. Each `musicL` row of `GET /v1/feeds/recent` and `GET /v1/feeds/by-name` gives its confirmed publisher feed, or null.
+6. A list of the publisher feeds with a minimum of one confirmed playlist link, with the count, newest playlist first.
+
+**Status.** Answered - 2026-11-16. [Stophammer ADR 0102](../adr/0102-a-publisher-view-shows-its-playlists.md) is Proposed. It gives the direction `publisher_to_playlist`, the field `two_way_playlist_link_count`, the field `confirmed_publisher`, the route `GET /v1/feeds/playlist-publishers` and the capability `playlist_links`. No code is written.
 
 ## Stophammer Answers - 2026-09-25
 
