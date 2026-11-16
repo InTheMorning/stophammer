@@ -7,7 +7,7 @@ decision. The tests own the rules now. Read this record for history only.
 Accepted
 
 - Changed by: [ADR 0101](../0101-a-publisher-feed-can-list-playlists.md) §2,
-  for §2 steps 2 and 3. Proposed on 2026-11-16.
+  for §2 steps 2 and 3. Accepted on 2026-11-16.
 
 On 2026-09-27 [ADR 0061](../0061-a-publisher-read-counts-its-listed-artists.md)
 §5 made a rule of the present behavior of §4. The `publisher` view of an album

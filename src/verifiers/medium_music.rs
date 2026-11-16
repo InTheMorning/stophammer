@@ -1,6 +1,6 @@
 // Rust guideline compliant (M-MODULE-DOCS) — 2026-03-09
 
-//! Verifier: podcast:medium tag must be "music", "publisher", or "musicL".
+//! Verifier: podcast:medium must be accepted, and publishers must list music or musicL items (ADR 0101 §1).
 
 use crate::medium;
 use crate::verify::{IngestContext, Verifier, VerifyResult};
@@ -11,6 +11,7 @@ use crate::verify::{IngestContext, Verifier, VerifyResult};
 /// Publisher feeds (`medium=publisher`) are parent feeds that list child music
 /// feeds via `<podcast:remoteItem>`. They carry no tracks or payment routes
 /// but provide artist/label identity and feed grouping signals.
+/// ADR 0101 §1 accepts publisher feeds that list `music` or `musicL` items.
 ///
 /// `musicL` feeds are playlist/container feeds. They are preserved at the
 /// source layer, but downstream ingest suppresses local item materialization
@@ -32,18 +33,18 @@ impl Verifier for MediumMusicVerifier {
         {
             Some(raw_medium) if medium::is_music(Some(raw_medium)) => VerifyResult::Pass,
             Some(raw_medium) if medium::is_publisher(Some(raw_medium)) => {
-                // Publisher feeds must reference at least one music child feed
-                // to be worth ingesting — otherwise they are empty shells.
+                // ADR 0101 §1 requires at least one music or musicL item.
                 let has_music_child = ctx.request.feed_data.as_ref().is_some_and(|f| {
-                    f.remote_items
-                        .iter()
-                        .any(|ri| medium::is_music(ri.medium.as_deref()))
+                    f.remote_items.iter().any(|ri| {
+                        medium::is_music(ri.medium.as_deref())
+                            || medium::is_musicl(ri.medium.as_deref())
+                    })
                 });
                 if has_music_child {
                     VerifyResult::Pass
                 } else {
                     VerifyResult::Fail(
-                        "publisher feed has no remoteItem with medium='music'".into(),
+                        "publisher feed has no remoteItem with medium='music' or 'musicL'".into(),
                     )
                 }
             }

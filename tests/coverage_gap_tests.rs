@@ -1506,7 +1506,7 @@ fn medium_music_verifier_pass_publisher_with_music_children() {
 }
 
 // ---------------------------------------------------------------------------
-// 26b. MediumMusicVerifier rejects publisher with no music children
+// 26b. MediumMusicVerifier rejects publisher with no music or musicL children
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1539,7 +1539,16 @@ fn medium_music_verifier_rejects_publisher_no_music_children() {
             author_name: None,
             owner_name: None,
             pub_date: None,
-            remote_items: vec![],
+            remote_items: vec![stophammer::ingest::IngestRemoteFeedRef {
+                position: 0,
+                medium: Some("podcast".into()),
+                remote_feed_guid: "podcast-guid".into(),
+                remote_feed_url: Some("https://example.com/podcast.xml".into()),
+                rel: None,
+                item_guid: None,
+                item_title: None,
+                publisher_reference: false,
+            }],
             persons: vec![],
             entity_ids: vec![],
             links: vec![],
@@ -1551,7 +1560,73 @@ fn medium_music_verifier_rejects_publisher_no_music_children() {
     };
     let ctx = verifier_ctx(&req, &conn);
     let v = MediumMusicVerifier;
-    assert!(matches!(v.verify(&ctx), VerifyResult::Fail(_)));
+    match v.verify(&ctx) {
+        VerifyResult::Fail(reason) => {
+            assert!(reason.contains("music"));
+            assert!(reason.contains("musicL"));
+        }
+        other => panic!("expected publisher rejection, got {other:?}"),
+    }
+}
+
+#[test]
+fn medium_music_verifier_pass_publisher_with_musicl_children() {
+    use stophammer::verifiers::medium_music::MediumMusicVerifier;
+    use stophammer::verify::{Verifier, VerifyResult};
+
+    let conn = common::test_db();
+    let mut req = stophammer::ingest::IngestFeedRequest {
+        crawl_token: String::new(),
+        canonical_url: String::new(),
+        source_url: String::new(),
+        http_status: 200,
+        content_hash: String::new(),
+        force_reingest: false,
+        redirects: vec![],
+        feed_data: Some(stophammer::ingest::IngestFeedData {
+            feed_guid: "guid-pub-musicl".into(),
+            title: "Playlist Publisher".into(),
+            description: None,
+            image_url: None,
+            language: None,
+            explicit: false,
+            itunes_type: None,
+            raw_medium: Some("publisher".into()),
+            last_build_date: None,
+            new_feed_url: None,
+            locked: None,
+            locked_owner: None,
+            author_name: None,
+            owner_name: None,
+            pub_date: None,
+            remote_items: vec![],
+            persons: vec![],
+            entity_ids: vec![],
+            links: vec![],
+            feed_payment_routes: vec![],
+            live_items: vec![],
+            blocks: vec![],
+            tracks: vec![],
+        }),
+    };
+    for medium_name in ["musicL", "MusicL"] {
+        req.feed_data.as_mut().expect("feed data").remote_items =
+            vec![stophammer::ingest::IngestRemoteFeedRef {
+                position: 0,
+                medium: Some(medium_name.into()),
+                remote_feed_guid: "playlist-guid".into(),
+                remote_feed_url: Some("https://example.com/playlist.xml".into()),
+                rel: None,
+                item_guid: None,
+                item_title: None,
+                publisher_reference: false,
+            }];
+        let ctx = verifier_ctx(&req, &conn);
+        assert!(matches!(
+            MediumMusicVerifier.verify(&ctx),
+            VerifyResult::Pass
+        ));
+    }
 }
 
 // ---------------------------------------------------------------------------

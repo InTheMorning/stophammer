@@ -7,7 +7,7 @@ decision. The tests own the rules now. Read this record for history only.
 Accepted on 2026-09-26
 
 - Changed by: [ADR 0101](../0101-a-publisher-feed-can-list-playlists.md) §3,
-  for §5 item 1. Proposed on 2026-11-16.
+  for §5 item 1. Accepted on 2026-11-16.
 
 ## Date
 2026-09-25

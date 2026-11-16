@@ -233,7 +233,7 @@ No other files need to change. The chain order and which verifiers run is contro
 - **Effect:** Rejects feeds where `podcast:medium` is absent or set outside the accepted set
 - **Result:** `Pass` for `music`, `publisher`, and `musicL`; `Fail` otherwise
 - **Env vars:** None
-- **Notes:** `publisher` and `musicL` are accepted as container/source-layer mediums. `publisher` still requires at least one `remoteItem` child with `medium="music"`. When `podcast:medium` is absent, the verifier rejects (`Fail`). Operators who want to accept feeds without the tag should remove this verifier from the chain.
+- **Notes:** `publisher` and `musicL` are accepted as container/source-layer mediums. Under ADR 0101 §1, `publisher` requires at least one `remoteItem` child with `medium="music"` or `medium="musicL"`. When `podcast:medium` is absent, the verifier rejects (`Fail`). Operators who want to accept feeds without the tag should remove this verifier from the chain.
 
 ### Feed blocking (not a chain entry)
 

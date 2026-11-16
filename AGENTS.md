@@ -35,8 +35,8 @@ release promotes its candidate, and
 version number.
 
 Each ADR in [the index](docs/adr/README.md) with the status Accepted is
-in a release, but ADR 0098 and the `medium` rule of ADR 0100 item 9 of
-2026-11-14 are in no release. The primary sets
+in a release, but ADR 0098, ADR 0101 and the `medium` rule of ADR 0100
+item 9 of 2026-11-14 are in no release. The primary sets
 `SOURCE_GONE_HOSTS=wavlake.com` (ADR 0067).
 [ADR 0095](docs/adr/0095-a-release-on-two-platforms-is-two-feeds.md) changes no
 code, so no release carries it.
@@ -95,9 +95,9 @@ change of ADR 0050 §3 on 2026-11-13, a `304` after a permanent redirect.
   `import`. [Task 011](docs/tasks/adr-0081-task-011-import-gap-decision.md)
   gives the steps.
 - [ADR 0101](docs/adr/0101-a-publisher-feed-can-list-playlists.md) is
-  Proposed on 2026-11-16. It lets a publisher feed list `musicL` feeds. No
-  code holds it. The implementation changes the node and `stophammer-crawler`,
-  and it sets the ADR to Accepted.
+  Accepted on 2026-11-16. It lets a publisher feed list `musicL` feeds. Its
+  code is on `main` of `stophammer` and `stophammer-crawler`, and no release
+  holds it.
 - A restart of the gossip crawler reads many cold pages of the podping archive
   in its first seconds. This costs only disk reads, and no decision is open.
 

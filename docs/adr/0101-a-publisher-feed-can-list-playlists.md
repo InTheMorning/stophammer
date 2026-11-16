@@ -1,8 +1,9 @@
 # ADR 0101: A Publisher Feed Can List Playlists
 
 ## Status
-Proposed on 2026-11-16. The operator selected option A of the investigation
-of 2026-11-16: the index ingests the link, and the read view does not change.
+Accepted on 2026-11-16. No release holds it. The operator selected option A
+of the investigation of 2026-11-16: the index ingests the link, and the read
+view does not change.
 
 - Bar: crosses repositories. The node verifier, the crawler follow rules and
   the crawler skip store change together.

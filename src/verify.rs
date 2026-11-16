@@ -46,7 +46,7 @@
 //! | Name | Module | Function |
 //! |---|---|---|
 //! | `content_hash` | [`verifiers::content_hash`] | Short-circuits unchanged feeds |
-//! | `medium_music` | [`verifiers::medium_music`] | Rejects absent or non-music `podcast:medium` |
+//! | `medium_music` | [`verifiers::medium_music`] | Rejects absent or unsupported `podcast:medium`; publisher feeds need a `music` or `musicL` item (ADR 0101 §1) |
 //! | `feed_guid` | [`verifiers::feed_guid`] | Rejects bad/malformed GUIDs |
 //! | `v4v_payment` | [`verifiers::v4v_payment`] | Rejects feeds with no valid V4V payment routes |
 //! | `enclosure_type` | [`verifiers::enclosure_type`] | Warns on video MIME types |
