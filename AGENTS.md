@@ -94,6 +94,10 @@ change of ADR 0050 §3 on 2026-11-13, a `304` after a permanent redirect.
   2026-10-31. On 2026-11-28, after 28 days, the result decides the schedule of
   `import`. [Task 011](docs/tasks/adr-0081-task-011-import-gap-decision.md)
   gives the steps.
+- [ADR 0101](docs/adr/0101-a-publisher-feed-can-list-playlists.md) is
+  Proposed on 2026-11-16. It lets a publisher feed list `musicL` feeds. No
+  code holds it. The implementation changes the node and `stophammer-crawler`,
+  and it sets the ADR to Accepted.
 - A restart of the gossip crawler reads many cold pages of the podping archive
   in its first seconds. This costs only disk reads, and no decision is open.
 
