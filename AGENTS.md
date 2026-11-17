@@ -18,9 +18,8 @@ delivered ADR 0083.
 
 Release 0.21.0 of 2026-11-17 is the latest release. On 2026-11-17, `GET
 /node/info` gave the revision `238d1b6`, which is the commit of `v0.21.0` and of
-`v0.21.0-rc.2`. Before the promotion, the gossip crawler was up on the image
-`stophammer-crawler:0.21.0-rc.2`. No check of its image after the promotion is
-recorded. The refill pass of ADR 0098 §6 ran on 2026-11-17. The record
+`v0.21.0-rc.2`. On 2026-11-17, after the promotion, the gossip crawler is up on
+the image `stophammer-crawler:0.21.0`. The refill pass of ADR 0098 §6 ran on 2026-11-17. The record
 `07adf84f-c1fa-47a7-a121-0fb544e859bd` keeps the feed URL of its move of
 2026-11-13.
 
