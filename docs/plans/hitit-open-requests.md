@@ -464,7 +464,7 @@ Stophammer owns the name and the form of each parameter. The filters and the row
 
 **Request.** The orchestrator session sent it on 2026-11-17 for musicindex.org and HitIt (musicindex.org request 32). On each `musicL` row of the two lists, give the publisher reference of the playlist when the link is one-way. The change only adds to `v1`.
 
-**Status.** Answered - 2026-11-17. [Stophammer ADR 0102](../adr/0102-a-publisher-view-shows-its-playlists.md) §5a is Accepted on 2026-11-17. It gives the field `unconfirmed_publisher` with `feed_guid` and `title` on each row that gives `confirmed_publisher`. The value is null when the link is confirmed or when the playlist names no publisher feed. The capability `playlist_links` covers it. No code is written.
+**Status.** Answered - 2026-11-17. [Stophammer ADR 0102](../adr/0102-a-publisher-view-shows-its-playlists.md) §5a is Accepted on 2026-11-17. It gives the field `unconfirmed_publisher` with `feed_guid` and `title` on each row that gives `confirmed_publisher`. The value is null when the link is confirmed or when the playlist names no publisher feed. The capability `playlist_links` covers it. The code is on `main` (task 004), and no candidate holds it.
 
 ## Stophammer Answers - 2026-09-25
 
