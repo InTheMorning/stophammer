@@ -72,11 +72,6 @@ change of ADR 0050 §3 on 2026-11-13, a `304` after a permanent redirect.
   `value_blocks` gives it. On 2026-11-17, the backup gave no `route_type`
   `lightning` in the 225 feeds that the new parser stored. Count it again in
   the first backup after 2026-11-24.
-- ADR 0098 §6: the refill did not change 6 of the 12 feeds with a bad `node`
-  address. One is `72cb6198-9c25-5560-902c-a208dfec7b7c`. The other five give
-  the placeholder address `03abc123def456…`. A possible cause, not examined, is
-  that the fetch cache does not hold their bodies. `payment_routes` does not
-  give these addresses.
 - ADR 0100 item 22: after a restart of the primary, the first search with no `q`
   can be slow, because the database pages are not in memory. On 2026-10-25,
   the first `type=track&host=wavlake.com` took 14.5 s, and the next ones took
