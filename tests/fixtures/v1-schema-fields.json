@@ -232,6 +232,7 @@
       "tracks",
       "two_way_link_count",
       "two_way_playlist_link_count",
+      "unconfirmed_publisher",
       "unconfirmed_release_artist_count",
       "unconfirmed_release_artists",
       "updated_at",

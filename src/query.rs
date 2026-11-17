@@ -750,6 +750,14 @@ struct FeedResponse {
         reason = "omit this field on non-playlist feeds"
     )]
     confirmed_publisher: Option<Option<ConfirmedPublisher>>,
+    /// The unconfirmed publisher link of a playlist. ADR 0102 §5a.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<UnconfirmedPublisher>)]
+    #[expect(
+        clippy::option_option,
+        reason = "this field is not in non-playlist feed rows (ADR 0102 §5a)"
+    )]
+    unconfirmed_publisher: Option<Option<UnconfirmedPublisher>>,
     /// The different role tokens of the `publisher_rel` values of those
     /// confirmed rows, lowercased and sorted. Present only where
     /// `two_way_link_count` is. ADR 0068 §5.
@@ -851,28 +859,53 @@ struct ConfirmedPublisher {
     role_agreement: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, ToSchema)]
+struct UnconfirmedPublisher {
+    feed_guid: String,
+    title: Option<String>,
+}
+
 #[expect(
-    clippy::option_option,
-    reason = "The outer None omits non-playlists; the inner None emits null (ADR 0102 §5)."
+    clippy::type_complexity,
+    reason = "The two nested options distinguish omitted fields from null values (ADR 0102 §5a)."
 )]
-fn confirmed_publisher_for_feed(
+fn playlist_publishers_for_feed(
     conn: &rusqlite::Connection,
     feed_guid: &str,
     raw_medium: Option<&str>,
-) -> Result<Option<Option<ConfirmedPublisher>>, api::ApiError> {
+) -> Result<
+    (
+        Option<Option<ConfirmedPublisher>>,
+        Option<Option<UnconfirmedPublisher>>,
+    ),
+    api::ApiError,
+> {
     if !medium::is_musicl(raw_medium) {
-        return Ok(None);
+        return Ok((None, None));
     }
-    let publisher = load_publisher(conn, feed_guid)?
+    let publisher_row = load_publisher(conn, feed_guid)?
         .into_iter()
-        .find(|row| row.direction == "music_to_publisher" && is_confirmed_link(row))
-        .map(|row| ConfirmedPublisher {
-            feed_guid: row.publisher_feed_guid,
-            title: row.remote_feed_title,
-            role: row.role,
-            role_agreement: row.role_agreement,
-        });
-    Ok(Some(publisher))
+        .find(|row| row.direction == "music_to_publisher");
+    let (confirmed, unconfirmed) = match publisher_row {
+        Some(row) if is_confirmed_link(&row) => (
+            Some(Some(ConfirmedPublisher {
+                feed_guid: row.publisher_feed_guid,
+                title: row.remote_feed_title,
+                role: row.role,
+                role_agreement: row.role_agreement,
+            })),
+            Some(None),
+        ),
+        Some(row) => (
+            Some(None),
+            Some(Some(UnconfirmedPublisher {
+                feed_guid: row.publisher_feed_guid,
+                title: row.remote_feed_title,
+            })),
+        ),
+        None => (Some(None), Some(None)),
+    };
+    Ok((confirmed, unconfirmed))
 }
 
 /// One row of `FeedResponse.live_items` (ADR 0064 section 6).
@@ -2651,6 +2684,7 @@ fn build_feed_response(
         two_way_link_count: None,
         two_way_playlist_link_count: None,
         confirmed_publisher: None,
+        unconfirmed_publisher: None,
         stated_rels: None,
         agreed_roles: None,
         first_named_count: None,
@@ -5156,8 +5190,8 @@ fn feed_list_row_to_response(
             Some(facts.release_track_counts),
         )
     });
-    let confirmed_publisher =
-        confirmed_publisher_for_feed(conn, &r.feed_guid, r.raw_medium.as_deref())?;
+    let (confirmed_publisher, unconfirmed_publisher) =
+        playlist_publishers_for_feed(conn, &r.feed_guid, r.raw_medium.as_deref())?;
     Ok(FeedResponse {
         feed_guid: r.feed_guid,
         feed_url: r.feed_url,
@@ -5188,6 +5222,7 @@ fn feed_list_row_to_response(
         two_way_link_count,
         two_way_playlist_link_count,
         confirmed_publisher,
+        unconfirmed_publisher,
         stated_rels,
         agreed_roles,
         first_named_count,

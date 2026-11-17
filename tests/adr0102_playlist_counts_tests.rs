@@ -103,6 +103,16 @@ async fn setup() -> Arc<stophammer::api::AppState> {
         }]),
     )
     .await;
+    ingest(
+        &st,
+        "playlist-unconfirmed",
+        "musicL",
+        json!([{
+            "position": 0, "medium": "publisher", "remote_feed_guid": PUBLISHER,
+            "remote_feed_url": "https://example.com/pub-list.xml", "publisher_reference": true
+        }]),
+    )
+    .await;
     ingest(&st, "playlist-one-way", "musicL", json!([])).await;
     ingest(&st, PUBLISHER, "publisher", json!([
         {"position": 0, "medium": "music", "remote_feed_guid": "album-one", "remote_feed_url": "https://example.com/album-one.xml", "rel": "label"},
@@ -181,8 +191,21 @@ async fn publisher_playlist_count_and_curator_fields_follow_adr_0102() {
         playlist["confirmed_publisher"]["role_agreement"],
         "one_side"
     );
+    assert_eq!(playlist.get("unconfirmed_publisher"), Some(&Value::Null));
+    let unconfirmed = find(&recent_playlist, "playlist-unconfirmed");
+    assert_eq!(unconfirmed.get("confirmed_publisher"), Some(&Value::Null));
+    assert_eq!(unconfirmed["unconfirmed_publisher"]["feed_guid"], PUBLISHER);
     assert_eq!(
-        find(&recent_playlist, "playlist-one-way").get("confirmed_publisher"),
+        unconfirmed["unconfirmed_publisher"]["title"],
+        "Feed pub-list"
+    );
+    let playlist_without_reference = find(&recent_playlist, "playlist-one-way");
+    assert_eq!(
+        playlist_without_reference.get("confirmed_publisher"),
+        Some(&Value::Null)
+    );
+    assert_eq!(
+        playlist_without_reference.get("unconfirmed_publisher"),
         Some(&Value::Null)
     );
     assert!(
@@ -191,6 +214,14 @@ async fn publisher_playlist_count_and_curator_fields_follow_adr_0102() {
             "album-one"
         )
         .get("confirmed_publisher")
+        .is_none()
+    );
+    assert!(
+        find(
+            &send(&st, "/v1/feeds/recent?medium=music", None).await,
+            "album-one"
+        )
+        .get("unconfirmed_publisher")
         .is_none()
     );
     let by_name_playlist = send(&st, "/v1/feeds/by-name?medium=musicL", None).await;
