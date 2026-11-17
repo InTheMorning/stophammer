@@ -2093,6 +2093,50 @@ struct FeedRow {
     updated_at: i64,
 }
 
+const FEED_ROW_COLUMNS: &str = "feed_guid, feed_url, title, raw_medium, release_artist, \
+    release_artist_sort, release_date, release_kind, description, image_url, publisher, language, explicit, \
+    episode_count, newest_item_at, oldest_item_at, created_at, updated_at, last_build_date, release_artist_source";
+
+fn feed_row_from_sql(row: &rusqlite::Row<'_>) -> rusqlite::Result<FeedRow> {
+    Ok(FeedRow {
+        feed_guid: row.get(0)?,
+        feed_url: row.get(1)?,
+        title: row.get(2)?,
+        raw_medium: row.get(3)?,
+        release_artist: row.get(4)?,
+        release_artist_sort: row.get(5)?,
+        release_date: row.get(6)?,
+        release_kind: row.get(7)?,
+        description: row.get(8)?,
+        image_url: row.get(9)?,
+        publisher_text: row.get(10)?,
+        language: row.get(11)?,
+        explicit_int: row.get(12)?,
+        episode_count: row.get(13)?,
+        newest_item_at: row.get(14)?,
+        oldest_item_at: row.get(15)?,
+        created_at: row.get(16)?,
+        updated_at: row.get(17)?,
+        last_build_date: row.get(18)?,
+        release_artist_source: row.get(19)?,
+    })
+}
+
+/// A publisher feed with confirmed playlists, as ADR 0102 §6 defines it.
+#[derive(Debug, Serialize, ToSchema)]
+struct PlaylistPublisherRow {
+    #[serde(flatten)]
+    feed: FeedResponse,
+    newest_playlist_at: Option<i64>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+struct PlaylistPublisherResponse {
+    data: Vec<PlaylistPublisherRow>,
+    pagination: Pagination,
+    meta: ResponseMeta,
+}
+
 // ── GET /v1/feeds/{guid} ────────────────────────────────────────────────────
 
 /// The outcome of the `GET /v1/feeds/{guid}` lookup, decided before the
@@ -2131,36 +2175,9 @@ async fn handle_get_feed(
 
         let row_opt = conn
             .query_row(
-                "SELECT feed_guid, feed_url, title, raw_medium, release_artist, \
-             release_artist_sort, release_date, release_kind, description, image_url, publisher, \
-             language, explicit, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, \
-             last_build_date, release_artist_source \
-             FROM feeds WHERE feed_guid = ?1",
+                &format!("SELECT {FEED_ROW_COLUMNS} FROM feeds WHERE feed_guid = ?1"),
                 params![feed_guid],
-                |row| {
-                    Ok(FeedRow {
-                        feed_guid: row.get(0)?,
-                        feed_url: row.get(1)?,
-                        title: row.get(2)?,
-                        raw_medium: row.get(3)?,
-                        release_artist: row.get(4)?,
-                        release_artist_sort: row.get(5)?,
-                        release_date: row.get(6)?,
-                        release_kind: row.get(7)?,
-                        description: row.get(8)?,
-                        image_url: row.get(9)?,
-                        publisher_text: row.get(10)?,
-                        language: row.get(11)?,
-                        explicit_int: row.get(12)?,
-                        episode_count: row.get(13)?,
-                        newest_item_at: row.get(14)?,
-                        oldest_item_at: row.get(15)?,
-                        created_at: row.get(16)?,
-                        updated_at: row.get(17)?,
-                        last_build_date: row.get(18)?,
-                        release_artist_source: row.get(19)?,
-                    })
-                },
+                feed_row_from_sql,
             )
             .optional()?;
 
@@ -4960,10 +4977,7 @@ fn recent_feed_rows(
         )
     };
     let mut stmt = conn.prepare(&format!(
-        "SELECT feed_guid, feed_url, title, raw_medium, release_artist, \
-         release_artist_sort, release_date, release_kind, description, image_url, publisher, language, explicit, \
-         episode_count, newest_item_at, oldest_item_at, \
-         created_at, updated_at, last_build_date, release_artist_source \
+        "SELECT {FEED_ROW_COLUMNS} \
          FROM feeds \
          WHERE (?1 = 'all' OR lower(raw_medium) = ?1) \
            AND (?2 IS NULL OR {after_clause}) \
@@ -4974,30 +4988,7 @@ fn recent_feed_rows(
     let rows = stmt
         .query_map(
             params![medium, cursor_ts, cursor_guid, count, only_guids],
-            |row| {
-                Ok(FeedRow {
-                    feed_guid: row.get(0)?,
-                    feed_url: row.get(1)?,
-                    title: row.get(2)?,
-                    raw_medium: row.get(3)?,
-                    release_artist: row.get(4)?,
-                    release_artist_sort: row.get(5)?,
-                    release_date: row.get(6)?,
-                    release_kind: row.get(7)?,
-                    description: row.get(8)?,
-                    image_url: row.get(9)?,
-                    publisher_text: row.get(10)?,
-                    language: row.get(11)?,
-                    explicit_int: row.get(12)?,
-                    episode_count: row.get(13)?,
-                    newest_item_at: row.get(14)?,
-                    oldest_item_at: row.get(15)?,
-                    created_at: row.get(16)?,
-                    updated_at: row.get(17)?,
-                    last_build_date: row.get(18)?,
-                    release_artist_source: row.get(19)?,
-                })
-            },
+            feed_row_from_sql,
         )?
         .collect::<Result<_, _>>()?;
     Ok(rows)
@@ -5334,6 +5325,133 @@ async fn handle_get_recent_feeds(
         www_authenticate: None,
     })??;
 
+    Ok(Json(result))
+}
+
+/// Reads publisher candidates for the playlist list of ADR 0102 §6.
+fn playlist_publisher_candidates(
+    conn: &rusqlite::Connection,
+) -> Result<Vec<FeedRow>, api::ApiError> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {FEED_ROW_COLUMNS} FROM feeds f \
+         WHERE lower(f.raw_medium) = 'publisher' AND EXISTS (\
+         SELECT 1 FROM feed_remote_items_raw r WHERE r.feed_guid = f.feed_guid AND lower(r.medium) = 'musicl')"
+    ))?;
+    let rows = stmt
+        .query_map([], feed_row_from_sql)?
+        .collect::<Result<_, _>>()?;
+    Ok(rows)
+}
+
+/// Gets the newest confirmed playlist date for ADR 0102 §6.
+fn newest_playlist_at(
+    conn: &rusqlite::Connection,
+    confirmed: &[&PublisherResponse],
+) -> Result<Option<i64>, api::ApiError> {
+    let mut dates = Vec::with_capacity(confirmed.len());
+    for row in confirmed {
+        if let Some(feed) = db::get_feed_by_guid(conn, &row.music_feed_guid)? {
+            dates.push(feed.release_date.or(feed.last_build_date));
+        }
+    }
+    Ok(dates.into_iter().flatten().max())
+}
+
+/// Parses the playlist publisher cursor of ADR 0102 §6.
+fn parse_playlist_publisher_cursor(
+    cursor: Option<&str>,
+) -> Result<Option<(i64, String)>, api::ApiError> {
+    cursor
+        .map(|cursor| {
+            let decoded = decode_cursor_for(cursor, false)?;
+            let (timestamp, guid) = decoded.split_once('\0').ok_or_else(|| api::ApiError {
+                status: StatusCode::BAD_REQUEST,
+                message: "invalid cursor format".into(),
+                www_authenticate: None,
+            })?;
+            let timestamp = timestamp.parse::<i64>().map_err(|_err| api::ApiError {
+                status: StatusCode::BAD_REQUEST,
+                message: "invalid cursor timestamp".into(),
+                www_authenticate: None,
+            })?;
+            Ok((timestamp, guid.to_string()))
+        })
+        .transpose()
+}
+
+/// Handles the playlist publisher list in ADR 0102 §6.
+async fn handle_playlist_publishers(
+    State(state): State<Arc<api::AppState>>,
+    Query(params): Query<ListQuery>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    let state2 = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("database reader pool error: {e}"),
+            www_authenticate: None,
+        })?;
+        let limit = params.capped_limit();
+        let after = parse_playlist_publisher_cursor(params.cursor.as_deref())?;
+        let candidates = playlist_publisher_candidates(&conn)?;
+        let mut rows = Vec::new();
+        for candidate in candidates {
+            let publisher_rows = load_publisher(&conn, &candidate.feed_guid)?;
+            let confirmed: Vec<_> = publisher_rows
+                .iter()
+                .filter(|row| row.direction == "publisher_to_playlist" && is_confirmed_link(row))
+                .collect();
+            if confirmed.is_empty() {
+                continue;
+            }
+            let newest = newest_playlist_at(&conn, &confirmed)?;
+            if let Some((date, guid)) = &after {
+                let key = newest.unwrap_or(i64::MIN);
+                if key > *date || (key == *date && candidate.feed_guid >= *guid) {
+                    continue;
+                }
+            }
+            let mut feed = feed_list_row_to_response(&conn, candidate, true, false)?;
+            feed.two_way_playlist_link_count =
+                Some(i64::try_from(confirmed.len()).unwrap_or(i64::MAX));
+            rows.push(PlaylistPublisherRow {
+                feed,
+                newest_playlist_at: newest,
+            });
+        }
+        rows.sort_by(|a, b| {
+            b.newest_playlist_at
+                .cmp(&a.newest_playlist_at)
+                .then_with(|| b.feed.feed_guid.cmp(&a.feed.feed_guid))
+        });
+        let has_more = rows.len() > usize::try_from(limit).unwrap_or(usize::MAX);
+        rows.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
+        let cursor = if has_more {
+            rows.last().map(|row| {
+                encode_cursor_for(
+                    &format!(
+                        "{}\0{}",
+                        row.newest_playlist_at.unwrap_or(i64::MIN),
+                        row.feed.feed_guid
+                    ),
+                    false,
+                )
+            })
+        } else {
+            None
+        };
+        Ok::<_, api::ApiError>(PlaylistPublisherResponse {
+            data: rows,
+            pagination: Pagination { cursor, has_more },
+            meta: meta(&state2),
+        })
+    })
+    .await
+    .map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })??;
     Ok(Json(result))
 }
 
@@ -7308,6 +7426,8 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
             "artist_row_release_artist",
             "release_track_counts",
             "search_feed_summary",
+            // ADR 0102 §7: clients use this name before reading playlist links.
+            "playlist_links",
             "search_medium",
         ],
         // ADR 0071 §5: `type=publisher` finds a publisher feed by a word of
@@ -7754,6 +7874,10 @@ pub fn query_routes() -> axum::Router<Arc<api::AppState>> {
         .route("/v1/guid-changes", get(handle_list_guid_changes))
         .route("/v1/live-items", get(handle_list_live_items))
         .route("/v1/feeds/recent", get(handle_get_recent_feeds))
+        .route(
+            "/v1/feeds/playlist-publishers",
+            get(handle_playlist_publishers),
+        )
         .route("/v1/feeds/by-name", get(handle_get_feeds_by_name))
         .route("/v1/feeds/by-url", get(handle_get_feed_by_url))
         .route("/v1/artist-names", get(handle_get_artist_names))
@@ -7793,6 +7917,8 @@ pub(crate) fn response_schemas() -> Vec<SchemaEntry> {
     register_schema::<Pagination>(&mut schemas);
     register_schema::<ResponseMeta>(&mut schemas);
     register_schema::<FeedResponse>(&mut schemas);
+    register_schema::<PlaylistPublisherRow>(&mut schemas);
+    register_schema::<PlaylistPublisherResponse>(&mut schemas);
     register_schema::<TrackResponse>(&mut schemas);
     register_schema::<CapabilitiesResponse>(&mut schemas);
     register_schema::<PeerResponse>(&mut schemas);

@@ -121,3 +121,24 @@ cargo fmt -- --check
 
 Give the changed files and the result of each check. Name each point where the
 code did not let you follow this packet.
+
+## Review Fixes Of 2026-11-17
+
+The first run is in the working tree. The main session found these faults.
+Correct them on the current working tree. Do not start again.
+
+1. Acceptance criteria 1 and 3 have no test. Add a router test file,
+   `tests/adr0102_playlist_publishers_route_tests.rs`, with criteria 1, 2 and
+   3. Use two publisher feeds with confirmed playlists of different dates,
+   one publisher feed with only one-way playlist links, and one feed whose
+   confirmed playlists have no date.
+2. The handler copies the column list and the `FeedRow` mapping. Copies are
+   at `query_row` in the single feed read (near line 2155) and in
+   `recent_feed_rows` (near line 4992). Extract one column constant and one
+   mapping function, and use them in the three places. Do not change the
+   SQL of the two existing reads in another way.
+3. Move the candidate query, the date of each candidate and the cursor parse
+   out of `handle_playlist_publishers` into named functions. Write the body
+   so that `cargo fmt` formats it on several lines, as the rest of the file.
+4. Put a doc comment on `PlaylistPublisherRow`, on `newest_playlist_at` and
+   on `handle_playlist_publishers`. Each names ADR 0102 §6.

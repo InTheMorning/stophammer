@@ -192,6 +192,23 @@ fn spec_value(mode: DocMode) -> Value {
         }),
     );
     paths.insert(
+        "/v1/feeds/playlist-publishers".into(),
+        json!({
+            "get": operation(
+                "List playlist publishers",
+                "Lists publisher feeds with confirmed playlists.",
+                "Feeds",
+                vec![
+                    query_param("cursor", "string", None, false, "Opaque pagination cursor."),
+                    limit_query_param("Maximum rows to return.", query::LIST_LIMIT_MAX)
+                ],
+                None,
+                json!({"200": json_response("Playlist publishers.", envelope_schema(json!({"type":"array", "items":{"$ref":"#/components/schemas/PlaylistPublisherRow"}})), query_envelope_example(json!([])))}),
+                None
+            )
+        }),
+    );
+    paths.insert(
         "/v1/feeds/by-url".into(),
         json!({
             "get": operation(

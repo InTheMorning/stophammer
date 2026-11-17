@@ -125,6 +125,17 @@ fn find(rows: &Value, guid: &str) -> Value {
 #[tokio::test]
 async fn publisher_playlist_count_and_curator_fields_follow_adr_0102() {
     let st = setup().await;
+    let playlist_publishers = send(&st, "/v1/feeds/playlist-publishers", None).await;
+    assert_eq!(playlist_publishers["data"].as_array().unwrap().len(), 1);
+    assert_eq!(playlist_publishers["data"][0]["feed_guid"], PUBLISHER);
+    assert_eq!(
+        playlist_publishers["data"][0]["two_way_playlist_link_count"],
+        1
+    );
+    assert_eq!(
+        playlist_publishers["data"][0]["newest_playlist_at"],
+        Value::Null
+    );
     let recent = send(
         &st,
         "/v1/feeds/recent?medium=publisher&include=link_facts",

@@ -157,6 +157,12 @@ async fn each_capability_include_gives_its_key_in_the_response() {
         http::StatusCode::OK,
         "GET /v1/node/capabilities must answer 200"
     );
+    assert!(
+        caps["capabilities"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("playlist_links"))
+    );
 
     let feed_includes: Vec<String> = caps["include_params"]["feed"]
         .as_array()
