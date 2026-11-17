@@ -1,7 +1,7 @@
 # ADR 0102: A Publisher View Shows Its Playlists
 
 ## Status
-Accepted on 2026-11-17. No release holds it. Its code is on `main`.
+Accepted on 2026-11-17. Release 0.21.0 of 2026-11-17 holds it with §5a.
 
 - Revised: 2026-11-17, musicindex.org request 32 and HitIt request 17. §5a
   adds `unconfirmed_publisher` to a playlist row. The revision is Accepted on

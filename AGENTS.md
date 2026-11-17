@@ -6,22 +6,23 @@ update this file in the same change that drifts it.
 
 ## Where The Work Stands
 
-Release 0.20.1 of 2026-11-14 delivered the change of ADR 0050 §3 of 2026-11-13.
-It promotes candidate `v0.20.1-rc.1`. Release 0.20.0 of 2026-11-12 delivered
+Release 0.21.0 of 2026-11-17 delivered ADRs 0098, 0101 and 0102 and the
+`medium` rule of ADR 0100 item 9. It promotes candidate `v0.21.0-rc.2`. Release
+0.20.1 of 2026-11-14 delivered the change of ADR 0050 §3 of 2026-11-13. Release
+0.20.0 of 2026-11-12 delivered
 ADRs 0096 and 0097. Release 0.19.0 of 2026-11-11 delivered ADRs 0084 to
 0094 and parser commit `7130556` of ADR 0017. Release 0.18.1 of 2026-11-05
 delivered ADR 0083.
 
 ### Deployed
 
-Release 0.20.1 of 2026-11-14 is the latest release. The primary runs candidate
-`v0.21.0-rc.1`, which holds ADR 0098 and the `medium` rule of ADR 0100 item 9.
-On 2026-11-17, `GET /node/info` gave the revision `e3a9f6e`, built on
-2026-11-15, which is the commit of `v0.21.0-rc.1`. No record states that the refill of ADR 0098 §6 ran. Release
-0.20.1 has the commit `e881b48` of `v0.20.1` and of `v0.20.1-rc.1`. The
-record `07adf84f-c1fa-47a7-a121-0fb544e859bd` keeps the feed URL of its move of
-2026-11-13. On 2026-11-14, after the promotion, the gossip crawler is up on the
-image `stophammer-crawler:0.20.1`.
+Release 0.21.0 of 2026-11-17 is the latest release. On 2026-11-17, `GET
+/node/info` gave the revision `238d1b6`, which is the commit of `v0.21.0` and of
+`v0.21.0-rc.2`. Before the promotion, the gossip crawler was up on the image
+`stophammer-crawler:0.21.0-rc.2`. No check of its image after the promotion is
+recorded. The refill pass of ADR 0098 §6 ran on 2026-11-17. The record
+`07adf84f-c1fa-47a7-a121-0fb544e859bd` keeps the feed URL of its move of
+2026-11-13.
 
 On 2026-11-12, the start log of release 0.20.0 gave the return cooldown 60 s, a
 limit of 3600 s and a reset after 86400 s. On 2026-11-12, a Studio move test
@@ -38,10 +39,7 @@ release promotes its candidate, and
 version number.
 
 Each ADR in [the index](docs/adr/README.md) with the status Accepted is
-in a release, but ADR 0098, ADR 0101, ADR 0102 and the `medium` rule of ADR 0100
-item 9 of 2026-11-14 are in no release. Candidate `v0.21.0-rc.1` holds ADR 0098
-and the `medium` rule. No candidate holds ADR 0101 or ADR 0102. The primary sets
-`SOURCE_GONE_HOSTS=wavlake.com` (ADR 0067).
+in a release. The primary sets `SOURCE_GONE_HOSTS=wavlake.com` (ADR 0067).
 [ADR 0095](docs/adr/0095-a-release-on-two-platforms-is-two-feeds.md) changes no
 code, so no release carries it.
 [ADR 0096](docs/adr/0096-the-operator-sets-the-return-cooldown.md) adds three
@@ -70,17 +68,16 @@ change of ADR 0050 §3 on 2026-11-13, a `304` after a permanent redirect.
 - [The remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md)
   gives the other open items: the four pending GUID changes of ADR 0052, and
   two research items.
-- [ADR 0098](docs/adr/0098-a-value-block-keeps-its-type-and-method.md) is
-  Accepted on 2026-11-14. Its code is on `main` of the three repositories, and
-  no release holds it. It answers
-  [the research request of 2026-11-13](docs/plans/research-value-block-type-request.md).
-  The next release is 0.21.0, and it has migration 0065. A community node
-  upgrades before the primary, because an old node cannot read a route type
-  that is not one of its four names. After the deploy, the refill pass of
-  ADR 0098 §6 must run. The number of feeds with a recipient of
-  `type="lightning"` is not known. `payment_routes` does not give such a
-  recipient after its feed is read again, and the refill export prints the
-  count.
+- ADR 0098 §2: no count of the feeds with a recipient of `type="lightning"`
+  is recorded. `payment_routes` does not give such a recipient, and
+  `value_blocks` gives it. On 2026-11-17, the backup gave no `route_type`
+  `lightning` in the 225 feeds that the new parser stored. Count it again in
+  the first backup after 2026-11-24.
+- ADR 0098 §6: the refill did not change 6 of the 12 feeds with a bad `node`
+  address. One is `72cb6198-9c25-5560-902c-a208dfec7b7c`. The other five give
+  the placeholder address `03abc123def456…`. A possible cause, not examined, is
+  that the fetch cache does not hold their bodies. `payment_routes` does not
+  give these addresses.
 - ADR 0100 item 22: after a restart of the primary, the first search with no `q`
   can be slow, because the database pages are not in memory. On 2026-10-25,
   the first `type=track&host=wavlake.com` took 14.5 s, and the next ones took
@@ -91,15 +88,6 @@ change of ADR 0050 §3 on 2026-11-13, a `304` after a permanent redirect.
   2026-10-31. On 2026-11-28, after 28 days, the result decides the schedule of
   `import`. [Task 011](docs/tasks/adr-0081-task-011-import-gap-decision.md)
   gives the steps.
-- [ADR 0101](docs/adr/0101-a-publisher-feed-can-list-playlists.md) is
-  Accepted on 2026-11-16. It lets a publisher feed list `musicL` feeds. Its
-  code is on `main` of `stophammer` and `stophammer-crawler`, and no release
-  holds it.
-- [ADR 0102](docs/adr/0102-a-publisher-view-shows-its-playlists.md) is
-  Accepted on 2026-11-17. It shows the playlists of a publisher feed in the
-  read view, for a request of musicindex.org and HitIt. Its four tasks are on
-  `main`, and no candidate holds them. Task 004 gives §5a,
-  `unconfirmed_publisher` on a playlist row.
 - [ADR 0103](docs/adr/0103-a-marked-publisher-feed-is-a-person.md) is
   Proposed on 2026-11-16. A publisher feed with the person mark enters the
   index with no release, and Studio can show it as a person. No code is

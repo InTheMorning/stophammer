@@ -6,10 +6,10 @@ Answered by [ADR 0098](../adr/0098-a-value-block-keeps-its-type-and-method.md), 
 
 | Section | Status | Owner or blocker |
 |---|---|---|
-| V1, record the type and the method of each value block | Accepted, not released | ADR 0098 |
-| V2, keep the recipient type that the feed gives | Accepted, not released | ADR 0098 |
-| V3, keep the routes of two value blocks apart | Accepted, not released | ADR 0098 |
-| V4, give the method to API clients | Accepted, not released | ADR 0098 |
+| V1, record the type and the method of each value block | Live in release 0.21.0 on 2026-11-17 | ADR 0098 |
+| V2, keep the recipient type that the feed gives | Live in release 0.21.0 on 2026-11-17 | ADR 0098 |
+| V3, keep the routes of two value blocks apart | Live in release 0.21.0 on 2026-11-17 | ADR 0098 |
+| V4, give the method to API clients | Live in release 0.21.0 on 2026-11-17 | ADR 0098 |
 
 This request comes from the research repository at
 `~/build/musicindex-research`, commit `e69bfb9`. That repository has no Git

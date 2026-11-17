@@ -4,7 +4,7 @@
 
 Open - 2026-09-25. Updated on 2026-10-21: requests 1 to 15, 19 and 20 are
 closed. Updated on 2026-10-25: release 0.16.0 deployed requests 17 and 18 (ADR
-0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, release 0.19.0 gives it, and requests 23 to 25 are open. Requests 26 and 27 are open. Updated on 2026-11-08: Stophammer answers requests 27 to 30. On 2026-11-08 the live node gives request 30, and request 30 is closed. Stophammer answers request 22. Updated on 2026-11-10: Stophammer answers requests 23, 24 and 26, and request 24 is closed. Updated on 2026-11-11: release 0.19.0 gives requests 21, 22, 23 and 25 to 30. Updated on 2026-11-16: request 31 is open, and Stophammer answers it with ADR 0102. Updated on 2026-11-17: request 32 is open, and Stophammer answers it with ADR 0102 §5a. This document consolidates each open request from the
+0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, release 0.19.0 gives it, and requests 23 to 25 are open. Requests 26 and 27 are open. Updated on 2026-11-08: Stophammer answers requests 27 to 30. On 2026-11-08 the live node gives request 30, and request 30 is closed. Stophammer answers request 22. Updated on 2026-11-10: Stophammer answers requests 23, 24 and 26, and request 24 is closed. Updated on 2026-11-11: release 0.19.0 gives requests 21, 22, 23 and 25 to 30. Updated on 2026-11-16: request 31 is open, and Stophammer answers it with ADR 0102. Updated on 2026-11-17: request 32 is open, and Stophammer answers it with ADR 0102 §5a. Release 0.21.0 of 2026-11-17 gives requests 31 and 32. This document consolidates each open request from the
 musicindex.org web client: the search site (`search.html`) and the API console
 (`api.html`).
 
@@ -62,8 +62,8 @@ names the requests that the two clients share.
 | 28 | A release date for each artist and label | API parameter addition | Live in release 0.19.0 on 2026-11-11 (ADR 0091) |
 | 29 | The artist name of a publisher row of the artist list | API field addition | Live in release 0.19.0 on 2026-11-11 (ADR 0091 §1a) |
 | 30 | The releases of an artist row by track count | API field addition | Closed on 2026-11-08. Live in release 0.19.0 on 2026-11-11 (ADR 0092) |
-| 31 | Playlist links in the publisher view | API field and route addition | Answered on 2026-11-16. ADR 0102 is Accepted |
-| 32 | The unconfirmed publisher of a playlist row | API field addition | Answered on 2026-11-17. ADR 0102 §5a is Accepted |
+| 31 | Playlist links in the publisher view | API field and route addition | Live in release 0.21.0 on 2026-11-17 (ADR 0102) |
+| 32 | The unconfirmed publisher of a playlist row | API field addition | Live in release 0.21.0 on 2026-11-17 (ADR 0102 §5a) |
 
 ### 1. Summary Fields On Each `remote_items` Entry
 
@@ -877,7 +877,7 @@ confirmed releases) is a case with more than one track count.
 5. Each `musicL` row of `GET /v1/feeds/recent` and `GET /v1/feeds/by-name` gives its confirmed publisher feed, or null.
 6. A list of the publisher feeds with a minimum of one confirmed playlist link, with the count, newest playlist first.
 
-**Status.** Answered - 2026-11-16. [Stophammer ADR 0102](../adr/0102-a-publisher-view-shows-its-playlists.md) is Accepted on 2026-11-17. It gives the direction `publisher_to_playlist`, the field `two_way_playlist_link_count`, the field `confirmed_publisher`, the route `GET /v1/feeds/playlist-publishers` and the capability `playlist_links`. No code is written.
+**Status.** Answered - 2026-11-16. [Stophammer ADR 0102](../adr/0102-a-publisher-view-shows-its-playlists.md) is Accepted on 2026-11-17. It gives the direction `publisher_to_playlist`, the field `two_way_playlist_link_count`, the field `confirmed_publisher`, the route `GET /v1/feeds/playlist-publishers` and the capability `playlist_links`. Release 0.21.0 of 2026-11-17 gives it.
 
 ### 32. The Unconfirmed Publisher Of A Playlist Row
 
@@ -885,7 +885,7 @@ confirmed releases) is a case with more than one track count.
 
 **Request.** The orchestrator session sent it on 2026-11-17 for musicindex.org and HitIt (HitIt request 17). On each `musicL` row of the two lists, give the publisher reference of the playlist when the link is one-way. The change only adds to `v1`.
 
-**Status.** Answered - 2026-11-17. [Stophammer ADR 0102](../adr/0102-a-publisher-view-shows-its-playlists.md) §5a is Accepted on 2026-11-17. It gives the field `unconfirmed_publisher` with `feed_guid` and `title` on each row that gives `confirmed_publisher`. The value is null when the link is confirmed or when the playlist names no publisher feed. The capability `playlist_links` covers it. The code is on `main` (task 004), and no candidate holds it.
+**Status.** Answered - 2026-11-17. [Stophammer ADR 0102](../adr/0102-a-publisher-view-shows-its-playlists.md) §5a is Accepted on 2026-11-17. It gives the field `unconfirmed_publisher` with `feed_guid` and `title` on each row that gives `confirmed_publisher`. The value is null when the link is confirmed or when the playlist names no publisher feed. The capability `playlist_links` covers it. Release 0.21.0 of 2026-11-17 gives it.
 
 ## Stophammer Answers - 2026-09-25
 
