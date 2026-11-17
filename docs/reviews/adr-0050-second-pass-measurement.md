@@ -2,7 +2,8 @@
 
 This record is advisory. It states no binding rule.
 [ADR 0050](../adr/0050-the-crawler-revalidates-a-feed.md) owns the rule. This
-record gives the measurement that keeps the open question of ADR 0050 open.
+record gives the measurement of the question of ADR 0050. The operator
+closed that question on 2026-11-17 with no answer.
 
 ## The Report
 

@@ -10,6 +10,8 @@ Accepted.
   wasted `200` (ADR 0072 §6).
 - Revised: 2026-11-13. §3: a `304` after a permanent redirect submits the kept
   body.
+- Revised: 2026-11-17. The operator closed the open question of the `429`
+  limit with no answer.
 
 ## Date
 2026-09-24
@@ -161,9 +163,13 @@ fetch for `max-age`, because a podping says that the feed changed.
   without this decision.
 - The work is in `stophammer-crawler` only. Its commits name this ADR.
 
-## Open Question
+## Closed Question
 Does a `304` count against the `429` limit of Wavlake? Decision 6 measures it
 during the first pass that runs with this change.
+
+The operator closed this question on 2026-11-17 with no answer. The answer
+changes nothing now, because a pass gets almost no `429`. If a pass gets many
+`429` answers, a new decision starts from the measurement record.
 
 The second pass of 2026-09-27 could not answer it. Wavlake builds each feed
 body again in 12 hours or less, so its `ETag` changes and almost each

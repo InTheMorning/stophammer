@@ -64,9 +64,6 @@ change of ADR 0050 §3 on 2026-11-13, a `304` after a permanent redirect.
 - ADR 0062: no long replay of the podping archive has run on the crawler of
   release 0.3.0 or later. After the next stop of the gossip crawler, examine
   its memory during the catch-up.
-- The open question of ADR 0050 stays open.
-  [The measurement record](docs/reviews/adr-0050-second-pass-measurement.md)
-  gives the reason.
 - Podcast-namespace PR #793 is open. ADR 0069 §1a follows it.
   [The guide](docs/publisher-links-guide.md) tells a feed author how to write
   the links.
@@ -74,9 +71,8 @@ change of ADR 0050 §3 on 2026-11-13, a `304` after a permanent redirect.
   gives the other open items: the four pending GUID changes of ADR 0052, and
   two research items.
 - [The research request of 2026-10-23](docs/plans/research-search-index-request.md)
-  gives a list of search changes. ADR 0100 answers its four defects, the
-  phrase change and the prefix match. No decision is recorded
-  for the other changes.
+  has one open item, the shared client code. The operator closed its other
+  changes on 2026-11-17.
 - [ADR 0098](docs/adr/0098-a-value-block-keeps-its-type-and-method.md) is
   Accepted on 2026-11-14. Its code is on `main` of the three repositories, and
   no release holds it. It answers

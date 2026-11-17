@@ -6799,7 +6799,10 @@ async fn handle_search(
     let kind = params.kind.clone();
     let medium = params.medium;
     let filters = params.filters.clone();
-    tracing::info!(q = ?q, kind = ?kind, "search query received");
+    // The log holds the length of `q`, not its text, because the text can be
+    // private data (Operator choice of 2026-11-17, research request of
+    // 2026-10-23, priority 4).
+    tracing::info!(q_chars = q.chars().count(), kind = ?kind, "search query received");
     // Issue-NEGATIVE-LIMIT — 2026-03-15
     let limit = params.limit.unwrap_or(20).clamp(1, SEARCH_LIMIT_MAX);
     // ADR 0076 §3: the link facts of a `publisher` row, only with the
