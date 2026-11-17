@@ -3,6 +3,9 @@
 ## Status
 Accepted on 2026-11-17. No release holds it, and its code is not written.
 
+- Revised: 2026-11-17, musicindex.org request 32 and HitIt request 17. §5a
+  adds `unconfirmed_publisher` to a playlist row. The revision is Proposed.
+
 - Bar: crosses repositories. musicindex.org and HitIt read the new fields, and
   a shared musicindex ADR for the display uses their names.
 - Changes: [ADR 0101](0101-a-publisher-feed-can-list-playlists.md) §5, the
@@ -148,6 +151,25 @@ The value is the confirmed link of §2 of the publisher reference. It is null
 when the playlist has no confirmed link. A playlist has at most one publisher
 reference, so it has at most one confirmed publisher.
 
+### 5a. A playlist row names its unconfirmed publisher
+
+This section is Proposed on 2026-11-17. The other sections of this ADR are Accepted.
+
+Each row that gives `confirmed_publisher` (§5) also gives
+`unconfirmed_publisher`. The field needs no include.
+
+| Field | Value |
+|---|---|
+| `feed_guid` | The `publisher_feed_guid` of the `music_to_publisher` row of the publisher reference |
+| `title` | The title of that publisher feed, or null when the node does not hold it |
+
+The value is the publisher reference of the playlist when its
+`music_to_publisher` row is not a confirmed link (ADR 0049 §6a). This occurs
+when the publisher feed does not list the playlist, or when the two sides
+state different roles. The value is null when the playlist has no publisher
+reference, or when the link is confirmed. Thus a row gives at most one
+non-null value of `confirmed_publisher` and `unconfirmed_publisher`.
+
 ### 6. A list of the publisher feeds with playlists
 
 A new route, `GET /v1/feeds/playlist-publishers`, gives each publisher feed with
@@ -248,6 +270,11 @@ the work of the clients.
    with the GUID, the title and the role of the publisher feed on
    `GET /v1/feeds/recent?medium=musicL`. A playlist with a one-way link gives
    null.
+5a. A router test: a playlist with a one-way link gives
+   `unconfirmed_publisher` with the GUID and the title of the named publisher
+   feed, and `confirmed_publisher` null. A playlist with a confirmed link gives
+   `unconfirmed_publisher` null. A playlist with no publisher reference gives
+   null in the two fields.
 6. A router test: `GET /v1/feeds/playlist-publishers` gives the two publisher
    feeds with confirmed playlists, newest `newest_playlist_at` first. A
    publisher feed with only one-way playlist links is not in the list.
