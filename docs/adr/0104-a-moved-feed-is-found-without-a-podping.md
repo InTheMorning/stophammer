@@ -1,10 +1,10 @@
 # ADR 0104: A Moved Feed Is Found Without A Podping
 
 ## Status
-Proposed on 2026-11-17. The operator selected options A and B of the
+Accepted on 2026-11-17. The operator selected options A and B of the
 proposal, and asked that the crawler avoids `429` answers of feed hosts (§6).
-No release holds it. "Open Questions" gives the values that the operator did
-not set.
+Release 0.21.1 holds it. "Open Questions" gives the values that the operator
+did not set.
 
 - Bar: crosses repositories. This repository holds the schedule and the
   runbook, and `stophammer-crawler` holds the report of §2.
@@ -230,7 +230,8 @@ The operator did not set these values. The ADR uses the recommended value. The
 operator can change each value with no new ADR:
 
 1. The interval of `refresh` is 7 days. The timer starts it on Sunday at
-   03:00 UTC.
+   03:00 in the local time of the host. On the primary host, this is 3 hours
+   after the start of the `import` passes.
 2. The backoff of §6 starts at two times `HOST_DELAY_MS`, is at most 60 s,
    and halves after 20 fetches with no `429`. A `Retry-After` of more than
    600 s counts as 600 s.

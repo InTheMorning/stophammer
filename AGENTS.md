@@ -6,8 +6,9 @@ update this file in the same change that drifts it.
 
 ## Where The Work Stands
 
-Release 0.21.0 of 2026-11-17 delivered ADRs 0098, 0101 and 0102 and the
-`medium` rule of ADR 0100 item 9. It promotes candidate `v0.21.0-rc.2`. Release
+Release 0.21.1 of 2026-11-17 delivered ADR 0104. It promotes candidate
+`v0.21.1-rc.1`. Release 0.21.0 of 2026-11-17 delivered ADRs 0098, 0101 and 0102
+and the `medium` rule of ADR 0100 item 9. It promotes candidate `v0.21.0-rc.2`. Release
 0.20.1 of 2026-11-14 delivered the change of ADR 0050 §3 of 2026-11-13. Release
 0.20.0 of 2026-11-12 delivered
 ADRs 0096 and 0097. Release 0.19.0 of 2026-11-11 delivered ADRs 0084 to
@@ -16,10 +17,10 @@ delivered ADR 0083.
 
 ### Deployed
 
-Release 0.21.0 of 2026-11-17 is the latest release. On 2026-11-17, `GET
-/node/info` gave the revision `238d1b6`, which is the commit of `v0.21.0` and of
-`v0.21.0-rc.2`. On 2026-11-17, after the promotion, the gossip crawler is up on
-the image `stophammer-crawler:0.21.0`. The refill pass of ADR 0098 §6 ran on 2026-11-17. The record
+Release 0.21.1 of 2026-11-17 is the latest release. On 2026-11-17, `GET
+/node/info` gave the revision `f844d86`, which is the commit of `v0.21.1` and of
+`v0.21.1-rc.1`. On 2026-11-17, after the promotion, the gossip crawler is up on
+the image `stophammer-crawler:0.21.1`. The refill pass of ADR 0098 §6 ran on 2026-11-17. The record
 `07adf84f-c1fa-47a7-a121-0fb544e859bd` keeps the feed URL of its move of
 2026-11-13.
 
@@ -29,7 +30,10 @@ passed on candidate `v0.20.0-rc.1`. Studio commit `f7d14c2` records it in
 `docs/tasks/studio-v1-task-127-return-wait.md`.
 
 The last runs of `import` and `import-wavlake` used release 0.18.1. A timer
-starts the `podcastindex` pass at an interval of 3 hours (ADR 0081 §1). `docker-compose.yml` gives these three services the image variable
+starts the `podcastindex` pass at an interval of 3 hours (ADR 0081 §1). A timer
+starts `refresh` on Sunday at 03:00 local time (ADR 0104 §1). The first
+`podcastindex` pass of release 0.21.1 gave `url_differences=71`, and no row was
+a move to make. A different count is a reason to read the table (ADR 0104 §5). `docker-compose.yml` gives these three services the image variable
 of the gossip crawler, and a release deploy pins that variable in `.env`. No record
 states the image of a pass. `GET /node/info` gives the revision of the running
 node. [ADR 0065](docs/adr/0065-a-release-promotes-its-candidate.md) gives how a
@@ -56,9 +60,6 @@ change of ADR 0050 §3 on 2026-11-13, a `304` after a permanent redirect.
 - ADR 0064: `CONFIRMING_RELAY_HOSTS` stays empty until the relay gives a lease.
 - ADR 0099 item 36: the time of a build of the artist list after a change is not
   measured. Measure it when the gossip crawler sends changes.
-- [ADR 0104](docs/adr/0104-a-moved-feed-is-found-without-a-podping.md) is
-  Proposed until a release holds the report of §2. The operator starts the
-  weekly `refresh` of §1 and reads the first `url_differences` count.
 - ADR 0076: the HitIt operator checks its two visual criteria on release
   0.13.0.
 - ADR 0062: no long replay of the podping archive has run on the crawler of
