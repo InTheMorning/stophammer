@@ -739,6 +739,17 @@ struct FeedResponse {
     /// ADR 0049 §6a.
     #[serde(skip_serializing_if = "Option::is_none")]
     two_way_link_count: Option<i64>,
+    /// Confirmed playlist links. ADR 0102 §3.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    two_way_playlist_link_count: Option<i64>,
+    /// The confirmed publisher of a playlist. ADR 0102 §5.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<ConfirmedPublisher>)]
+    #[expect(
+        clippy::option_option,
+        reason = "omit this field on non-playlist feeds"
+    )]
+    confirmed_publisher: Option<Option<ConfirmedPublisher>>,
     /// The different role tokens of the `publisher_rel` values of those
     /// confirmed rows, lowercased and sorted. Present only where
     /// `two_way_link_count` is. ADR 0068 §5.
@@ -830,6 +841,38 @@ struct FeedResponse {
     /// every other route.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     sort_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+struct ConfirmedPublisher {
+    feed_guid: String,
+    title: Option<String>,
+    role: Option<String>,
+    role_agreement: Option<String>,
+}
+
+#[expect(
+    clippy::option_option,
+    reason = "The outer None omits non-playlists; the inner None emits null (ADR 0102 §5)."
+)]
+fn confirmed_publisher_for_feed(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+    raw_medium: Option<&str>,
+) -> Result<Option<Option<ConfirmedPublisher>>, api::ApiError> {
+    if !medium::is_musicl(raw_medium) {
+        return Ok(None);
+    }
+    let publisher = load_publisher(conn, feed_guid)?
+        .into_iter()
+        .find(|row| row.direction == "music_to_publisher" && is_confirmed_link(row))
+        .map(|row| ConfirmedPublisher {
+            feed_guid: row.publisher_feed_guid,
+            title: row.remote_feed_title,
+            role: row.role,
+            role_agreement: row.role_agreement,
+        });
+    Ok(Some(publisher))
 }
 
 /// One row of `FeedResponse.live_items` (ADR 0064 section 6).
@@ -1228,6 +1271,9 @@ struct SearchResponseItem {
     /// row does. ADR 0076 §3.
     #[serde(skip_serializing_if = "Option::is_none")]
     two_way_link_count: Option<i64>,
+    /// Confirmed playlist links. ADR 0102 §3.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    two_way_playlist_link_count: Option<i64>,
     /// The role tokens of the `publisher_rel` values of the confirmed rows.
     /// The field is only on the row with `two_way_link_count`. ADR 0076 §3.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2305,6 +2351,7 @@ fn confirmed_and_unconfirmed_release_artists(
 #[derive(Debug, Clone)]
 struct LinkFacts {
     two_way_link_count: i64,
+    two_way_playlist_link_count: i64,
     stated_rels: Vec<String>,
     agreed_roles: Vec<String>,
     confirmed_release_artists: Vec<String>,
@@ -2324,6 +2371,11 @@ fn link_facts(rows: &[PublisherResponse]) -> LinkFacts {
         .iter()
         .filter(|row| row.direction == "publisher_to_music" && is_confirmed_link(row))
         .collect();
+    // ADR 0102 §3: playlist links stay separate from album link facts.
+    let confirmed_playlists = rows
+        .iter()
+        .filter(|row| row.direction == "publisher_to_playlist" && is_confirmed_link(row))
+        .count();
     let stated_rels: std::collections::BTreeSet<String> = confirmed
         .iter()
         .filter_map(|row| row.publisher_rel.as_deref())
@@ -2348,6 +2400,7 @@ fn link_facts(rows: &[PublisherResponse]) -> LinkFacts {
     }
     LinkFacts {
         two_way_link_count: i64::try_from(confirmed.len()).unwrap_or(i64::MAX),
+        two_way_playlist_link_count: i64::try_from(confirmed_playlists).unwrap_or(i64::MAX),
         first_named_count: i64::try_from(first_named).unwrap_or(i64::MAX),
         stated_rels: stated_rels.into_iter().collect(),
         agreed_roles: agreed_roles.into_iter().collect(),
@@ -2579,6 +2632,8 @@ fn build_feed_response(
         unconfirmed_release_artist_count: None,
         unconfirmed_release_artists: None,
         two_way_link_count: None,
+        two_way_playlist_link_count: None,
+        confirmed_publisher: None,
         stated_rels: None,
         agreed_roles: None,
         first_named_count: None,
@@ -2620,6 +2675,7 @@ fn build_feed_response(
         resp.distinct_release_artists = Some(artists);
 
         let rows = load_publisher(conn, &feed_guid)?;
+        resp.two_way_playlist_link_count = Some(link_facts(&rows).two_way_playlist_link_count);
         let (confirmed, unconfirmed) = confirmed_and_unconfirmed_release_artists(&rows);
         resp.confirmed_release_artist_count =
             Some(i64::try_from(confirmed.len()).unwrap_or(i64::MAX));
@@ -5092,14 +5148,16 @@ fn feed_list_row_to_response(
     };
     let (
         two_way_link_count,
+        two_way_playlist_link_count,
         stated_rels,
         agreed_roles,
         listed_confirmed,
         first_named_count,
         release_track_counts,
-    ) = facts.map_or((None, None, None, None, None, None), |facts| {
+    ) = facts.map_or((None, None, None, None, None, None, None), |facts| {
         (
             Some(facts.two_way_link_count),
+            Some(facts.two_way_playlist_link_count),
             Some(facts.stated_rels),
             Some(facts.agreed_roles),
             Some(facts.confirmed_release_artists),
@@ -5107,6 +5165,8 @@ fn feed_list_row_to_response(
             Some(facts.release_track_counts),
         )
     });
+    let confirmed_publisher =
+        confirmed_publisher_for_feed(conn, &r.feed_guid, r.raw_medium.as_deref())?;
     Ok(FeedResponse {
         feed_guid: r.feed_guid,
         feed_url: r.feed_url,
@@ -5135,6 +5195,8 @@ fn feed_list_row_to_response(
         unconfirmed_release_artist_count: None,
         unconfirmed_release_artists: None,
         two_way_link_count,
+        two_way_playlist_link_count,
+        confirmed_publisher,
         stated_rels,
         agreed_roles,
         first_named_count,
@@ -5547,6 +5609,9 @@ struct ArtistNameRow {
     /// Absent on a `name` row. ADR 0071 §2.
     #[serde(skip_serializing_if = "Option::is_none")]
     two_way_link_count: Option<i64>,
+    /// Confirmed playlist links with `include=link_facts`. ADR 0102 §3.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    two_way_playlist_link_count: Option<i64>,
     /// With `include=link_facts`, the ADR 0068 §5 value for a `publisher`
     /// row. Absent on a `name` row. ADR 0071 §2.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -5595,6 +5660,7 @@ impl ArtistNameRow {
     /// Sets the link facts of a `publisher` row. ADR 0071 §2.
     fn with_link_facts(mut self, facts: LinkFacts) -> Self {
         self.two_way_link_count = Some(facts.two_way_link_count);
+        self.two_way_playlist_link_count = Some(facts.two_way_playlist_link_count);
         self.stated_rels = Some(facts.stated_rels);
         self.agreed_roles = Some(facts.agreed_roles);
         self.confirmed_release_artists = Some(facts.confirmed_release_artists);
@@ -5606,6 +5672,7 @@ impl ArtistNameRow {
     /// Removes the link facts, for a page with no `include=link_facts`.
     fn without_link_facts(mut self) -> Self {
         self.two_way_link_count = None;
+        self.two_way_playlist_link_count = None;
         self.stated_rels = None;
         self.agreed_roles = None;
         self.confirmed_release_artists = None;
@@ -5796,6 +5863,7 @@ fn build_artist_name_list(conn: &rusqlite::Connection) -> Result<ArtistNameList,
                 release_count: None,
                 newest_release_at,
                 two_way_link_count: None,
+                two_way_playlist_link_count: None,
                 stated_rels: None,
                 agreed_roles: None,
                 confirmed_release_artists: None,
@@ -5840,6 +5908,7 @@ fn build_artist_name_list(conn: &rusqlite::Connection) -> Result<ArtistNameList,
             release_count: Some(release_count),
             newest_release_at: newest_of(&group.feed_guids),
             two_way_link_count: None,
+            two_way_playlist_link_count: None,
             stated_rels: None,
             agreed_roles: None,
             confirmed_release_artists: None,
@@ -6879,6 +6948,7 @@ async fn handle_search(
                     // `feed` row and a `track` row give none of them.
                     let (
                         two_way_link_count,
+                        two_way_playlist_link_count,
                         stated_rels,
                         agreed_roles,
                         confirmed_release_artists,
@@ -6888,6 +6958,7 @@ async fn handle_search(
                         let facts = link_facts(&load_publisher(&conn, &entity_id)?);
                         (
                             Some(facts.two_way_link_count),
+                            Some(facts.two_way_playlist_link_count),
                             Some(facts.stated_rels),
                             Some(facts.agreed_roles),
                             Some(facts.confirmed_release_artists),
@@ -6895,7 +6966,7 @@ async fn handle_search(
                             Some(facts.release_track_counts),
                         )
                     } else {
-                        (None, None, None, None, None, None)
+                        (None, None, None, None, None, None, None)
                     };
 
                     Ok(SearchResponseItem {
@@ -6925,6 +6996,7 @@ async fn handle_search(
                         track_artist: summary.track_artist,
                         duration_secs: summary.duration_secs,
                         two_way_link_count,
+                        two_way_playlist_link_count,
                         stated_rels,
                         agreed_roles,
                         confirmed_release_artists,

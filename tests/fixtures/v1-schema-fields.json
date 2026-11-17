@@ -30,7 +30,8 @@
       "release_track_counts",
       "sort_name",
       "stated_rels",
-      "two_way_link_count"
+      "two_way_link_count",
+      "two_way_playlist_link_count"
     ]
   },
   "ArtistTrackItem": {
@@ -185,6 +186,7 @@
     "properties": [
       "agreed_roles",
       "co_credited_feeds",
+      "confirmed_publisher",
       "confirmed_release_artist_count",
       "confirmed_release_artists",
       "copy_count",
@@ -229,6 +231,7 @@
       "title",
       "tracks",
       "two_way_link_count",
+      "two_way_playlist_link_count",
       "unconfirmed_release_artist_count",
       "unconfirmed_release_artists",
       "updated_at",
@@ -540,7 +543,8 @@
       "title",
       "track_artist",
       "track_image_url",
-      "two_way_link_count"
+      "two_way_link_count",
+      "two_way_playlist_link_count"
     ]
   },
   "SourceContributorClaimResponse": {
