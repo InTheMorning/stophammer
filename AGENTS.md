@@ -70,9 +70,6 @@ change of ADR 0050 §3 on 2026-11-13, a `304` after a permanent redirect.
 - [The remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md)
   gives the other open items: the four pending GUID changes of ADR 0052, and
   two research items.
-- [The research request of 2026-10-23](docs/plans/research-search-index-request.md)
-  has one open item, the shared client code. The operator closed its other
-  changes on 2026-11-17.
 - [ADR 0098](docs/adr/0098-a-value-block-keeps-its-type-and-method.md) is
   Accepted on 2026-11-14. Its code is on `main` of the three repositories, and
   no release holds it. It answers

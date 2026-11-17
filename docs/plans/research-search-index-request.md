@@ -2,13 +2,13 @@
 
 ## Status
 
-Answered in part - 2026-11-11. ADR 0078 answers the four defects and the first
+Closed - 2026-11-17. Answered in part on 2026-11-11. ADR 0078 answers the four defects and the first
 two changes of priority 1. ADR 0094 answers the third change of priority 1. ADR 0087
 and ADR 0086 answer the two changes of priority 2. Updated on 2026-11-17: the operator
 closed the changes of priorities 3 and 4 as not needed now, with one exception.
 The node now logs the length of a query, not its text. A client request or a
-slow measurement can open a closed change again. The shared client code has no
-decision.
+slow measurement can open a closed change again. The operator declined the
+shared client code on 2026-11-17.
 
 Operator choice, 2026-11-17: the search log holds the number of characters of
 `q`, not its text. A test does not check it, because no incident occurred.
@@ -30,7 +30,7 @@ Operator choice, 2026-11-17: the search log holds the number of characters of
 | Priority 3, an index on `tracks.publisher` | Closed | Not needed now |
 | Priority 4, a test of search time on a copy | Closed | Not needed now |
 | Priority 4, log the length of a query | Answered | Operator choice of 2026-11-17. `handle_search` logs the number of characters of `q`, not its text |
-| Shared Client Code | Open | The proposal needs decisions in Stophammer, HitIt and Studio. No license decision is necessary, because the three apps are AGPL-3.0-only |
+| Shared Client Code | Declined | Operator choice of 2026-11-17. The OpenAPI document, the schema field record and the HitIt guard tests (HitIt ADR 0075 §6) keep the clients on the contract. A shared crate makes the releases of three repositories depend on each other |
 
 Priority - 2026-11-06. The operator puts the prefix match of this request before
 the fast routes for a sort. The Studio pickers and the live searches need it. On
