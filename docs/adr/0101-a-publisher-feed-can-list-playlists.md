@@ -12,6 +12,8 @@ view does not change.
 - Changes: [ADR 0060](archive/0060-a-list-feed-keeps-its-items.md) §5 item 1
 - Changed by: [ADR 0102](0102-a-publisher-view-shows-its-playlists.md) §1,
   for the first item of §5. Proposed on 2026-11-16.
+- Changed by: [ADR 0103](0103-a-marked-publisher-feed-is-a-person.md) §3,
+  for §1. Proposed on 2026-11-16.
 
 ## Date
 2026-11-16

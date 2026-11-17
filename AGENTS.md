@@ -101,6 +101,10 @@ change of ADR 0050 §3 on 2026-11-13, a `304` after a permanent redirect.
 - [ADR 0102](docs/adr/0102-a-publisher-view-shows-its-playlists.md) is
   Proposed on 2026-11-16. It shows the playlists of a publisher feed in the
   read view, for a request of musicindex.org and HitIt. No code is written.
+- [ADR 0103](docs/adr/0103-a-marked-publisher-feed-is-a-person.md) is
+  Proposed on 2026-11-16. A publisher feed with the person mark enters the
+  index with no release, and Studio can show it as a person. No code is
+  written.
 - A restart of the gossip crawler reads many cold pages of the podping archive
   in its first seconds. This costs only disk reads, and no decision is open.
 
