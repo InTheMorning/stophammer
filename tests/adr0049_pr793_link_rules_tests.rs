@@ -166,6 +166,18 @@ async fn publisher(st: &Arc<stophammer::api::AppState>, guid: &str, name: &str, 
     .await;
 }
 
+async fn playlist(st: &Arc<stophammer::api::AppState>, guid: &str, items: Value) {
+    ingest(
+        st,
+        guid,
+        &format!("https://a.example/{guid}.xml"),
+        "musicL",
+        "Playlist",
+        items,
+    )
+    .await;
+}
+
 async fn read(st: &Arc<stophammer::api::AppState>, guid: &str) -> Value {
     send(
         st,
@@ -186,6 +198,98 @@ fn row<'a>(data: &'a Value, other_guid: &str) -> &'a Value {
             row["publisher_feed_guid"] == other_guid || row["music_feed_guid"] == other_guid
         })
         .unwrap_or_else(|| panic!("no publisher row for {other_guid} in {data}"))
+}
+
+#[tokio::test]
+async fn adr0102_publisher_and_playlist_rows_confirm_musicl_links() {
+    let st = state(common::test_db_arc());
+    publisher(
+        &st,
+        "adr0102-publisher",
+        "Curator",
+        json!([{"position": 0, "medium": "MusicL", "remote_feed_guid": "adr0102-playlist", "remote_feed_url": "https://a.example/adr0102-playlist.xml", "rel": "curator"}]),
+    )
+    .await;
+    playlist(
+        &st,
+        "adr0102-playlist",
+        json!([names(0, "adr0102-publisher", Some("curator"), true)]),
+    )
+    .await;
+
+    let publisher_row = row(&read(&st, "adr0102-publisher").await, "adr0102-playlist").clone();
+    assert_eq!(publisher_row["direction"], "publisher_to_playlist");
+    assert_eq!(publisher_row["two_way_validated"], true);
+    assert_eq!(publisher_row["publisher_lists_music"], true);
+    assert_eq!(publisher_row["music_names_publisher"], true);
+
+    let playlist_data = read(&st, "adr0102-playlist").await;
+    let playlist_row = row(&playlist_data, "adr0102-publisher");
+    assert_eq!(playlist_row["direction"], "music_to_publisher");
+    assert_eq!(playlist_row["two_way_validated"], true);
+    assert_eq!(playlist_row["reciprocal_medium"], "MusicL");
+}
+
+#[tokio::test]
+async fn adr0102_only_matches_playlist_and_album_back_links_by_medium() {
+    let st = state(common::test_db_arc());
+    publisher(
+        &st,
+        "adr0102-oneway-publisher",
+        "Curator",
+        json!([
+            {"position": 0, "medium": "musicL", "remote_feed_guid": "adr0102-album", "remote_feed_url": "https://a.example/adr0102-album.xml"},
+            {"position": 1, "medium": "music", "remote_feed_guid": "adr0102-oneway-playlist", "remote_feed_url": "https://a.example/adr0102-oneway-playlist.xml"}
+        ]),
+    )
+    .await;
+    album(
+        &st,
+        "adr0102-album",
+        "Album",
+        json!([names(0, "adr0102-oneway-publisher", None, true)]),
+    )
+    .await;
+    playlist(
+        &st,
+        "adr0102-oneway-playlist",
+        json!([names(0, "adr0102-oneway-publisher", None, true)]),
+    )
+    .await;
+
+    assert_eq!(
+        row(
+            &read(&st, "adr0102-album").await,
+            "adr0102-oneway-publisher"
+        )["two_way_validated"],
+        false
+    );
+    assert_eq!(
+        row(
+            &read(&st, "adr0102-oneway-playlist").await,
+            "adr0102-oneway-publisher"
+        )["two_way_validated"],
+        false
+    );
+}
+
+#[tokio::test]
+async fn adr0102_musicl_feed_does_not_give_a_playlist_listing_row() {
+    let st = state(common::test_db_arc());
+    playlist(
+        &st,
+        "adr0102-nested-playlist",
+        json!([{"position": 0, "medium": "musicL", "remote_feed_guid": "adr0102-child-playlist", "remote_feed_url": "https://a.example/adr0102-child-playlist.xml"}]),
+    )
+    .await;
+
+    let data = read(&st, "adr0102-nested-playlist").await;
+    assert!(
+        data["publisher"]
+            .as_array()
+            .expect("publisher rows")
+            .is_empty()
+    );
 }
 
 async fn list_row(st: &Arc<stophammer::api::AppState>, query: &str, guid: &str) -> Option<Value> {

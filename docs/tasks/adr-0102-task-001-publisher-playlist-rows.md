@@ -81,6 +81,8 @@ of the publisher feed for the back-link. The rows of an album do not change.
   medium, keep the current filter `Some("music")` with no change (§2).
 - The direction of the playlist row of §2 stays `music_to_publisher`.
   `reciprocal_medium` is `musicL` when the back-link matches.
+- Resolved point: `reciprocal_medium` gives the stored medium of the matched
+  item, as for an album. An item written as `MusicL` gives `MusicL`.
 - Do not change a row of the directions `music_to_publisher` and
   `publisher_to_music` on an album (§4).
 - Each changed comment names ADR 0102 and its section.

@@ -3250,7 +3250,13 @@ fn music_to_publisher_facts(
     if let Some(publisher_guid) = publisher_resolution.feed_guid() {
         for candidate in db::get_feed_remote_items_for_feed(conn, publisher_guid)?
             .into_iter()
-            .filter(|item| item.medium.as_deref() == Some("music"))
+            .filter(|item| {
+                if medium::is_musicl(current_feed.raw_medium.as_deref()) {
+                    medium::is_musicl(item.medium.as_deref())
+                } else {
+                    item.medium.as_deref() == Some("music")
+                }
+            })
         {
             let candidate_resolution = db::resolve_listed_feed(
                 conn,
@@ -3529,7 +3535,7 @@ struct PublisherRowItem<'a> {
 }
 
 /// Builds one `publisher` view row for a remote item of `current_feed`, or
-/// `None` when the item's medium is neither `"publisher"` nor `"music"`.
+/// `None` when this feed does not accept the item's medium. ADR 0102 §1.
 ///
 /// `current_feed_remote_items` is the full feed-level remote-item list of
 /// `current_feed` itself, in `position` order, as the caller already holds
@@ -3543,7 +3549,7 @@ fn build_publisher_row(
     current_feed_remote_items: &[crate::model::FeedRemoteItemRaw],
     item: &PublisherRowItem<'_>,
 ) -> Result<Option<PublisherResponse>, api::ApiError> {
-    let Some(direction) = publisher_direction(item.medium) else {
+    let Some(direction) = publisher_direction(current_feed, item.medium) else {
         return Ok(None);
     };
 
@@ -3557,13 +3563,13 @@ fn build_publisher_row(
             item.remote_feed_guid,
             item.remote_feed_url,
         )?,
-        "publisher_to_music" => publisher_to_music_facts(
+        "publisher_to_music" | "publisher_to_playlist" => publisher_to_music_facts(
             conn,
             current_feed,
             item.remote_feed_guid,
             item.remote_feed_url,
         )?,
-        _ => unreachable!("publisher_direction only returns the two names handled above"),
+        _ => unreachable!("publisher_direction only returns handled names"),
     };
 
     let reciprocal_declared = facts.music_names_publisher && facts.publisher_lists_music;
@@ -3575,8 +3581,8 @@ fn build_publisher_row(
     let own_rel = item.rel.map(str::to_string);
     let (publisher_rel, music_rel) = match direction {
         "music_to_publisher" => (facts.matched_item_rel, own_rel),
-        "publisher_to_music" => (own_rel, facts.matched_item_rel),
-        _ => unreachable!("publisher_direction only returns the two names handled above"),
+        "publisher_to_music" | "publisher_to_playlist" => (own_rel, facts.matched_item_rel),
+        _ => unreachable!("publisher_direction only returns handled names"),
     };
     let (role, role_source) = resolve_role(publisher_rel.as_deref(), music_rel.as_deref());
     let role_agreement = role_agreement(publisher_rel.as_deref(), music_rel.as_deref());
@@ -3591,19 +3597,19 @@ fn build_publisher_row(
     // and it is null when music_names_publisher is false.
     let album_names_as = match direction {
         "music_to_publisher" => album_names_as_value(item.source),
-        "publisher_to_music" => facts
+        "publisher_to_music" | "publisher_to_playlist" => facts
             .matched_item_source
             .as_deref()
             .and_then(album_names_as_value),
-        _ => unreachable!("publisher_direction only returns the two names handled above"),
+        _ => unreachable!("publisher_direction only returns handled names"),
     };
 
     // ADR 0069 §3a: the rank of the same matched item that gives
     // album_names_as, from the list each direction already holds.
     let album_names_rank = match direction {
         "music_to_publisher" => album_item_rank(current_feed_remote_items, item.position),
-        "publisher_to_music" => facts.album_names_rank,
-        _ => unreachable!("publisher_direction only returns the two names handled above"),
+        "publisher_to_music" | "publisher_to_playlist" => facts.album_names_rank,
+        _ => unreachable!("publisher_direction only returns handled names"),
     };
 
     // ADR 0054 §4: `remote_feed_url` is the raw `podcast:remoteItem` URL.
@@ -3759,8 +3765,11 @@ fn load_track_publisher(
     Ok(rows)
 }
 
-fn publisher_direction(medium: Option<&str>) -> Option<&'static str> {
-    match medium {
+fn publisher_direction(current_feed: &Feed, item_medium: Option<&str>) -> Option<&'static str> {
+    if medium::is_publisher(current_feed.raw_medium.as_deref()) && medium::is_musicl(item_medium) {
+        return Some("publisher_to_playlist");
+    }
+    match item_medium {
         Some("publisher") => Some("music_to_publisher"),
         Some("music") => Some("publisher_to_music"),
         _ => None,
