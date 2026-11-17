@@ -14,8 +14,11 @@ delivered ADR 0083.
 
 ### Deployed
 
-Release 0.20.1 of 2026-11-14 is the latest release. The primary gives the
-revision `e881b48`, which is the commit of `v0.20.1` and of `v0.20.1-rc.1`. The
+Release 0.20.1 of 2026-11-14 is the latest release. The primary runs candidate
+`v0.21.0-rc.1`, which holds ADR 0098 and the `medium` rule of ADR 0100 item 9.
+On 2026-11-17, `GET /node/info` gave the revision `e3a9f6e`, built on
+2026-11-15, which is the commit of `v0.21.0-rc.1`. No record states that the refill of ADR 0098 §6 ran. Release
+0.20.1 has the commit `e881b48` of `v0.20.1` and of `v0.20.1-rc.1`. The
 record `07adf84f-c1fa-47a7-a121-0fb544e859bd` keeps the feed URL of its move of
 2026-11-13. On 2026-11-14, after the promotion, the gossip crawler is up on the
 image `stophammer-crawler:0.20.1`.
@@ -36,7 +39,8 @@ version number.
 
 Each ADR in [the index](docs/adr/README.md) with the status Accepted is
 in a release, but ADR 0098, ADR 0101, ADR 0102 and the `medium` rule of ADR 0100
-item 9 of 2026-11-14 are in no release. The primary sets
+item 9 of 2026-11-14 are in no release. Candidate `v0.21.0-rc.1` holds ADR 0098
+and the `medium` rule. No candidate holds ADR 0101 or ADR 0102. The primary sets
 `SOURCE_GONE_HOSTS=wavlake.com` (ADR 0067).
 [ADR 0095](docs/adr/0095-a-release-on-two-platforms-is-two-feeds.md) changes no
 code, so no release carries it.
