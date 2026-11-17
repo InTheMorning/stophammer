@@ -35,7 +35,7 @@ release promotes its candidate, and
 version number.
 
 Each ADR in [the index](docs/adr/README.md) with the status Accepted is
-in a release, but ADR 0098, ADR 0101 and the `medium` rule of ADR 0100
+in a release, but ADR 0098, ADR 0101, ADR 0102 and the `medium` rule of ADR 0100
 item 9 of 2026-11-14 are in no release. The primary sets
 `SOURCE_GONE_HOSTS=wavlake.com` (ADR 0067).
 [ADR 0095](docs/adr/0095-a-release-on-two-platforms-is-two-feeds.md) changes no
@@ -99,7 +99,7 @@ change of ADR 0050 §3 on 2026-11-13, a `304` after a permanent redirect.
   code is on `main` of `stophammer` and `stophammer-crawler`, and no release
   holds it.
 - [ADR 0102](docs/adr/0102-a-publisher-view-shows-its-playlists.md) is
-  Proposed on 2026-11-16. It shows the playlists of a publisher feed in the
+  Accepted on 2026-11-17. It shows the playlists of a publisher feed in the
   read view, for a request of musicindex.org and HitIt. No code is written.
 - [ADR 0103](docs/adr/0103-a-marked-publisher-feed-is-a-person.md) is
   Proposed on 2026-11-16. A publisher feed with the person mark enters the

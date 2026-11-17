@@ -62,7 +62,7 @@ names the requests that the two clients share.
 | 28 | A release date for each artist and label | API parameter addition | Live in release 0.19.0 on 2026-11-11 (ADR 0091) |
 | 29 | The artist name of a publisher row of the artist list | API field addition | Live in release 0.19.0 on 2026-11-11 (ADR 0091 §1a) |
 | 30 | The releases of an artist row by track count | API field addition | Closed on 2026-11-08. Live in release 0.19.0 on 2026-11-11 (ADR 0092) |
-| 31 | Playlist links in the publisher view | API field and route addition | Answered on 2026-11-16. ADR 0102 is Proposed |
+| 31 | Playlist links in the publisher view | API field and route addition | Answered on 2026-11-16. ADR 0102 is Accepted |
 
 ### 1. Summary Fields On Each `remote_items` Entry
 
@@ -876,7 +876,7 @@ confirmed releases) is a case with more than one track count.
 5. Each `musicL` row of `GET /v1/feeds/recent` and `GET /v1/feeds/by-name` gives its confirmed publisher feed, or null.
 6. A list of the publisher feeds with a minimum of one confirmed playlist link, with the count, newest playlist first.
 
-**Status.** Answered - 2026-11-16. [Stophammer ADR 0102](../adr/0102-a-publisher-view-shows-its-playlists.md) is Proposed. It gives the direction `publisher_to_playlist`, the field `two_way_playlist_link_count`, the field `confirmed_publisher`, the route `GET /v1/feeds/playlist-publishers` and the capability `playlist_links`. No code is written.
+**Status.** Answered - 2026-11-16. [Stophammer ADR 0102](../adr/0102-a-publisher-view-shows-its-playlists.md) is Accepted on 2026-11-17. It gives the direction `publisher_to_playlist`, the field `two_way_playlist_link_count`, the field `confirmed_publisher`, the route `GET /v1/feeds/playlist-publishers` and the capability `playlist_links`. No code is written.
 
 ## Stophammer Answers - 2026-09-25
 

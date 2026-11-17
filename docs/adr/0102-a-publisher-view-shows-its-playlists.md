@@ -1,7 +1,7 @@
 # ADR 0102: A Publisher View Shows Its Playlists
 
 ## Status
-Proposed on 2026-11-16. No release holds it.
+Accepted on 2026-11-17. No release holds it, and its code is not written.
 
 - Bar: crosses repositories. musicindex.org and HitIt read the new fields, and
   a shared musicindex ADR for the display uses their names.

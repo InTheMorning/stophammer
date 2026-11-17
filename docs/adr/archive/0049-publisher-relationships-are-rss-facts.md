@@ -9,7 +9,7 @@ Accepted
 - Changed by: [ADR 0101](../0101-a-publisher-feed-can-list-playlists.md) §2,
   for §2 steps 2 and 3. Accepted on 2026-11-16.
 - Changed by: [ADR 0102](../0102-a-publisher-view-shows-its-playlists.md) §1
-  and §2, for §3 and §4. Proposed on 2026-11-16.
+  and §2, for §3 and §4. Accepted on 2026-11-17.
 
 On 2026-09-27 [ADR 0061](../0061-a-publisher-read-counts-its-listed-artists.md)
 §5 made a rule of the present behavior of §4. The `publisher` view of an album
