@@ -1,10 +1,12 @@
 # ADR 0102: A Publisher View Shows Its Playlists
 
 ## Status
-Accepted on 2026-11-17. No release holds it, and its code is not written.
+Accepted on 2026-11-17. No release holds it. Its code is on `main`, except
+the code of §5a.
 
 - Revised: 2026-11-17, musicindex.org request 32 and HitIt request 17. §5a
-  adds `unconfirmed_publisher` to a playlist row. The revision is Proposed.
+  adds `unconfirmed_publisher` to a playlist row. The revision is Accepted on
+  2026-11-17.
 
 - Bar: crosses repositories. musicindex.org and HitIt read the new fields, and
   a shared musicindex ADR for the display uses their names.
@@ -152,8 +154,6 @@ when the playlist has no confirmed link. A playlist has at most one publisher
 reference, so it has at most one confirmed publisher.
 
 ### 5a. A playlist row names its unconfirmed publisher
-
-This section is Proposed on 2026-11-17. The other sections of this ADR are Accepted.
 
 Each row that gives `confirmed_publisher` (§5) also gives
 `unconfirmed_publisher`. The field needs no include.
