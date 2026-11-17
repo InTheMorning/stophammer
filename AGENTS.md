@@ -56,6 +56,9 @@ change of ADR 0050 §3 on 2026-11-13, a `304` after a permanent redirect.
 - ADR 0064: `CONFIRMING_RELAY_HOSTS` stays empty until the relay gives a lease.
 - ADR 0099 item 36: the time of a build of the artist list after a change is not
   measured. Measure it when the gossip crawler sends changes.
+- [ADR 0104](docs/adr/0104-a-moved-feed-is-found-without-a-podping.md) is
+  Proposed until a release holds the report of §2. The operator starts the
+  weekly `refresh` of §1 and reads the first `url_differences` count.
 - ADR 0076: the HitIt operator checks its two visual criteria on release
   0.13.0.
 - ADR 0062: no long replay of the podping archive has run on the crawler of

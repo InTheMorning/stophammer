@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Stophammer refresh pass on a schedule
+
+[Timer]
+# ADR 0104 §1: a pass each 7 days. A pass reads each feed of the node, so
+# the node finds each move that an old source declares.
+OnCalendar=Sun *-*-* 03:00:00
+Persistent=true
+Unit=stophammer-refresh.service
+
+[Install]
+WantedBy=timers.target

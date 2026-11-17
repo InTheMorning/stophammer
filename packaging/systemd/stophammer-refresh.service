@@ -1,0 +1,26 @@
+[Unit]
+Description=Stophammer one-shot refresh pass over the feeds of the node (ADR 0047, ADR 0104 §1)
+After=network-online.target stophammer-primary.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=stophammer-crawler
+Group=stophammer-crawler
+EnvironmentFile=/etc/stophammer/crawler-feed.env
+ExecStart=/bin/sh -lc 'set -- /usr/bin/stophammer-crawler; if [ "${FORCE_REINGEST:-0}" = "1" ]; then set -- "$@" --force; fi; if [ "${NO_REVALIDATE:-0}" = "1" ]; then set -- "$@" --no-revalidate; fi; set -- "$@" refresh --feed-cache "${FEED_CACHE_DB:-/var/lib/stophammer-crawler/feed_cache.db}" --failed-feeds-output "${FAILED_FEEDS_OUTPUT:-/var/lib/stophammer-crawler/refresh_failed_feeds.txt}"; if [ -n "${CONCURRENCY:-}" ]; then set -- "$@" --concurrency "$CONCURRENCY"; fi; if [ -n "${HOST_DELAY_MS:-}" ]; then set -- "$@" --host-delay-ms "$HOST_DELAY_MS"; fi; exec "$@"'
+WorkingDirectory=/var/lib/stophammer-crawler
+StateDirectory=stophammer-crawler
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectControlGroups=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+LockPersonality=true
+ReadWritePaths=/var/lib/stophammer-crawler
+
+[Install]
+WantedBy=multi-user.target

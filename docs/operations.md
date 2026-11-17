@@ -336,6 +336,7 @@ Shipped example one-shot units:
 - `stophammer-import.service` + `stophammer-import.timer`
 - `stophammer-podcastindex.service` + `stophammer-podcastindex.timer`
 - `stophammer-crawl.service` + `stophammer-crawl.timer`
+- `stophammer-refresh.service` + `stophammer-refresh.timer`
 
 The Docker Compose stack also includes a one-shot `import` service. Edit
 `crawler-import.compose.env`, then run:
@@ -375,6 +376,24 @@ one-shot service. Follow these steps:
 
 `import` keeps its schedule until the measurement of ADR 0081 §10 is
 complete.
+
+The pass also reports each URL difference of ADR 0104 §2. A URL difference is
+a list row with the GUID of a node feed and a URL on another host. The report
+line gives `url_differences=N`, and the log gives one line for each row. The
+table `music_list_url_differences` of `import_state.db` keeps the rows of the
+last pass. "Find A Moved Feed" gives the steps for each row.
+
+The `refresh` pass (ADR 0047) runs one time each week (ADR 0104 §1). It reads
+each feed of the node, so the node finds each move that an old source
+declares. For systemd, start `stophammer-refresh.timer`. It reads
+`/etc/stophammer/crawler-feed.env`. For Compose, schedule this command:
+
+```bash
+docker compose run --rm stophammer-crawler refresh --feed-cache /data/feed_cache.db --failed-feeds-output /data/refresh_failed_feeds.txt
+```
+
+A pass takes some hours. On one pass, the Wavlake albums took approximately 2
+hours 46 minutes at the default host delay.
 
 The oneshot import/crawl units are examples only. They are not intended to be
 enabled by default in the first packaging milestone.
@@ -807,6 +826,11 @@ fetch: ok=N not_modified=N rate_limited=N other=N
 `ok` counts `200`, `not_modified` counts `304`, `rate_limited` counts `429`,
 and `other` counts each remaining result, including a failed connection.
 
+A host that answers `429` gets a longer delay (ADR 0104 §6). Each increase
+writes one line, for example `crawl: host wavlake.com answered 429, delay now
+3000 ms`. The delay is at most 60 s, and it falls after 20 fetches with no
+`429`. Many such lines for one host tell you to set a larger `HOST_DELAY_MS`.
+
 Read the summary line of a pass that runs in a container with this command:
 
 ```bash
@@ -1055,6 +1079,47 @@ To end the refusal, use one of these steps:
 2. The operator relocates the record with `PATCH /v1/feeds/{guid}`. The
    relocation keeps each left URL, adds the URL that it leaves, and clears the
    arrival tag and the count of returns.
+
+### Find A Moved Feed
+
+ADR 0104 §5 owns these steps. The `podcastindex` pass keeps the URL
+differences of its last pass. To read them on a Compose host, run this command:
+
+```bash
+sudo sqlite3 -readonly "$(docker volume inspect stophammer_crawler-data --format '{{.Mountpoint}}')/import_state.db" "SELECT podcastindex_id, feed_guid, node_url, list_url, datetime(pass_at, 'unixepoch') FROM music_list_url_differences ORDER BY feed_guid"
+```
+
+The host needs the `sqlite3` program. For systemd, the file is
+`/var/lib/stophammer-crawler/import_state.db`.
+
+For each row, do these checks:
+
+1. Fetch the list URL. The feed must declare the same `podcast:guid` as the
+   row.
+2. Fetch the node URL. It must answer gone, or it must name the list URL.
+3. Get a confirmation of the move from the publisher or from the new host.
+
+When each check passes, move the record:
+
+```bash
+curl -sS -X PATCH -H "X-Admin-Token: $ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"feed_url":"<list-url>","reason":"moved: <evidence>"}' \
+  -w '\nHTTP %{http_code}\n' https://<primary>/v1/feeds/<feed-guid>
+```
+
+The answer must be `HTTP 204`. Then crawl the list URL with the `feed` mode.
+
+A retired record is not in the node feed list. Its list row is a candidate,
+and its fetch gets `retired_source_conflict`. To read these rows, run this
+command:
+
+```bash
+sudo sqlite3 -readonly "$(docker volume inspect stophammer_crawler-data --format '{{.Mountpoint}}')/import_state.db" "SELECT podcastindex_id, feed_url, datetime(last_attempted_at, 'unixepoch') FROM music_list_attempts WHERE outcome_reason LIKE '%retired_source_conflict%' ORDER BY last_attempted_at DESC"
+```
+
+For each row, do the same checks. When each check passes, release the hold
+("Ingest gives `retired_source_conflict`"). Then crawl the URL of the row with
+the `feed` mode.
 
 ### Search index rebuild at the first start
 

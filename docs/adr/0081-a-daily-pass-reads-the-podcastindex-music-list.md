@@ -8,6 +8,8 @@ Amended on 2026-10-31, before the first scheduled pass. The operator starts a
 pass at an interval of 3 hours, not one time each day (§1). The file name
 keeps the word "daily" of the first title.
 
+- Changed by: [ADR 0104](0104-a-moved-feed-is-found-without-a-podping.md)
+
 Release 0.17.0 of 2026-10-31 holds the mode.
 [The measurement record](../reviews/adr-0081-first-pass-measurement.md) gives
 the first passes in production.
