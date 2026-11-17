@@ -100,8 +100,8 @@ change of ADR 0050 §3 on 2026-11-13, a `304` after a permanent redirect.
   holds it.
 - [ADR 0102](docs/adr/0102-a-publisher-view-shows-its-playlists.md) is
   Accepted on 2026-11-17. It shows the playlists of a publisher feed in the
-  read view, for a request of musicindex.org and HitIt. Tasks 001 and 002 are
-  on `main`, and task 003 is not complete. Its §5a, `unconfirmed_publisher` on a
+  read view, for a request of musicindex.org and HitIt. Its three tasks are on
+  `main`, and no candidate holds them. Its §5a, `unconfirmed_publisher` on a
   playlist row, is Proposed on 2026-11-17 and has no code.
 - [ADR 0103](docs/adr/0103-a-marked-publisher-feed-is-a-person.md) is
   Proposed on 2026-11-16. A publisher feed with the person mark enters the
