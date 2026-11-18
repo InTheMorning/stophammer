@@ -12,6 +12,9 @@ musicindex ADR 0084. The operator accepts or changes the tool of §2.
   rules R-PACKAGE-1 to R-PACKAGE-5. This record does not write them again.
 - Changes: [ADR 0063](0063-a-release-publishes-role-packages.md) §3. A release
   also has a Debian package for each role.
+- Operator choice, 2026-11-18: the `Maintainer` field is
+  `HeyCitizen <4637290+InTheMorning@users.noreply.github.com>`, the line of
+  the other suite packages. The orchestrator session relayed the choice.
 
 ## Date
 2026-11-18
@@ -154,10 +157,3 @@ Mechanical:
 
 No `cargo test` examines this record. The checks need `dpkg-deb` and a host
 with systemd. The release workflow has the two.
-
-## Open
-
-- The `Maintainer` field is
-  `stophammer maintainers <https://github.com/InTheMorning/stophammer/issues>`.
-  Debian Policy asks for an email address in this field, and `dpkg-deb`
-  accepts the field without one. The operator gives the address.

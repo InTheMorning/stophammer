@@ -19,7 +19,7 @@ deb_dist_dir="$dist_dir/deb"
 debian_dir="$repo_root/packaging/debian"
 deb_revision="1"
 deb_arch="amd64"
-maintainer="stophammer maintainers <https://github.com/InTheMorning/stophammer/issues>"
+maintainer="HeyCitizen <4637290+InTheMorning@users.noreply.github.com>"
 homepage="https://github.com/InTheMorning/stophammer"
 
 work_dir="$(mktemp -d)"
