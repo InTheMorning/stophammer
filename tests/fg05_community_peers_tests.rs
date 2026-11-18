@@ -123,6 +123,25 @@ async fn readonly_router_serves_node_info() {
         returned_pubkey, pubkey,
         "node_pubkey should match the state's pubkey"
     );
+
+    // musicindex ADR 0083 R-VERSION-9 item 1: the route gives the three
+    // build values of R-VERSION-3.
+    let build = stophammer::BUILD_INFO;
+    assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(
+        body["git_revision"],
+        build.git_revision.expect(
+            "musicindex ADR 0083 R-VERSION-1: run the test in a Git checkout or set STOPHAMMER_GIT_REVISION"
+        ),
+        "musicindex ADR 0083 R-VERSION-3: /node/info must give `git_revision` from BUILD_INFO"
+    );
+    assert_eq!(
+        body["built_at"],
+        build
+            .built_at
+            .expect("musicindex ADR 0083 R-VERSION-1: the test build has no build time"),
+        "musicindex ADR 0083 R-VERSION-3: /node/info must give `built_at` from BUILD_INFO"
+    );
 }
 
 /// Verify /sync/peers still works on the primary router too.

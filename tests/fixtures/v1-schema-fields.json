@@ -345,7 +345,8 @@
     "properties": [
       "built_at",
       "git_revision",
-      "node_pubkey"
+      "node_pubkey",
+      "version"
     ]
   },
   "Pagination": {

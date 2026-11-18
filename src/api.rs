@@ -4756,21 +4756,21 @@ async fn handle_sync_peers(
 #[derive(Deserialize, Serialize, ToSchema)]
 struct NodeInfoResponse {
     node_pubkey: String,
+    /// The build values of musicindex ADR 0083 R-VERSION-3. A peer of an
+    /// earlier release sends no `version`, so the field is optional here.
+    #[serde(default)]
+    version: Option<String>,
     git_revision: Option<String>,
     built_at: Option<String>,
 }
 
-/// A value that `deploy.sh` sets at compile time. An unset or empty value is
-/// null.
-fn build_value(value: Option<&'static str>) -> Option<String> {
-    value.filter(|v| !v.is_empty()).map(str::to_string)
-}
-
 async fn handle_node_info(State(state): State<Arc<AppState>>) -> Json<NodeInfoResponse> {
+    let build = crate::BUILD_INFO;
     Json(NodeInfoResponse {
         node_pubkey: state.node_pubkey_hex.clone(),
-        git_revision: build_value(option_env!("STOPHAMMER_GIT_REVISION")),
-        built_at: build_value(option_env!("STOPHAMMER_BUILT_AT")),
+        version: Some(build.version.to_string()),
+        git_revision: build.git_revision.map(str::to_string),
+        built_at: build.built_at.map(str::to_string),
     })
 }
 

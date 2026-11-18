@@ -1454,6 +1454,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "musicindex-build-info"
+version = "0.1.0"
+source = "git+https://github.com/InTheMorning/musicindex-lib?rev=e6d11118d33069c26c01368f7de71524988039c6#e6d11118d33069c26c01368f7de71524988039c6"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "no-std-compat"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2461,6 +2469,7 @@ dependencies = [
  "http-body-util",
  "instant-acme",
  "mimalloc",
+ "musicindex-build-info",
  "r2d2",
  "r2d2_sqlite",
  "rand_core 0.6.4",

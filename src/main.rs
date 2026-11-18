@@ -15,6 +15,16 @@ use stophammer::{api, blocks, community, db, db_pool, live, query, signing, tls,
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    // musicindex ADR 0083 R-VERSION-2: `--version` prints one line and stops.
+    // It is command output, not a log line, so it goes to stdout.
+    if std::env::args().skip(1).any(|arg| arg == "--version") {
+        use std::io::Write as _;
+        let line = stophammer::BUILD_INFO.version_line();
+        return match writeln!(std::io::stdout(), "{line}") {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(_) => ExitCode::FAILURE,
+        };
+    }
     init_tracing();
     match run().await {
         Ok(()) => ExitCode::SUCCESS,

@@ -47,6 +47,11 @@ crossterm          = "0.28"
 anyhow = "1.0.102"
 utoipa = "5"
 unicode-normalization = "0.1"
+# musicindex ADR 0083 R-VERSION-8: the build values of the app.
+musicindex-build-info = { git = "https://github.com/InTheMorning/musicindex-lib", rev = "e6d11118d33069c26c01368f7de71524988039c6" }
+
+[build-dependencies]
+musicindex-build-info = { git = "https://github.com/InTheMorning/musicindex-lib", rev = "e6d11118d33069c26c01368f7de71524988039c6" }
 
 # CRIT-02 test-util feature gate — 2026-03-13
 [features]

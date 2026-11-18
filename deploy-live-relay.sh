@@ -117,6 +117,9 @@ cat <<EOF
 EOF
 
 echo ":: Building musicindex-live-relay (${MUSL_TARGET})"
+# musicindex ADR 0083 R-VERSION-8: a release build sets the build time. The
+# relay reads the git revision from its checkout.
+export RELAY_BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 cargo build --release --target "${MUSL_TARGET}" \
     --manifest-path "${RELAY_SRC_DIR}/Cargo.toml"
 

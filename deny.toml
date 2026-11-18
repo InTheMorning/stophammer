@@ -71,9 +71,11 @@ deny = [
 ]
 
 # ── Sources ───────────────────────────────────────────────────────────────────
-# Only allow crates from crates.io; no git dependencies.
+# Allow crates from crates.io. The only git source is musicindex-lib, for the
+# crate musicindex-build-info of musicindex ADR 0083 R-VERSION-8.
 
 [sources]
 unknown-registry = "deny"
 unknown-git      = "deny"
 allow-registry   = ["https://github.com/rust-lang/crates.io-index"]
+allow-git        = ["https://github.com/InTheMorning/musicindex-lib"]

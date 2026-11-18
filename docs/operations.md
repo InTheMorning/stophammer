@@ -84,7 +84,7 @@ cargo build --release
 ./target/release/stophammer
 ```
 
-The `/node/info` endpoint gives two optional fields: `git_revision` and `built_at`. When you assemble the binary with `cargo build` directly, these fields are null. The `deploy.sh` script sets these fields by exporting `STOPHAMMER_GIT_REVISION` and `STOPHAMMER_BUILT_AT` as environment variables before assembly.
+The `/node/info` endpoint gives the build values of musicindex ADR 0083: `version`, `git_revision` and `built_at`. `stophammer --version` prints the same values in one line. The `deploy.sh` script and the `Dockerfile` set `STOPHAMMER_GIT_REVISION` and `STOPHAMMER_BUILT_AT` before assembly. When one of the two is not set, `build.rs` reads Git and the clock. When you assemble the binary with no `.git` folder and no `STOPHAMMER_GIT_REVISION`, `git_revision` is null.
 
 ### Install a release
 

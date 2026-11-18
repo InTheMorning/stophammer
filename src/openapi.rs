@@ -76,8 +76,8 @@ fn spec_value(mode: DocMode) -> Value {
         "/node/info".into(),
         json!({
             "get": operation(
-                "Node public key",
-                "Returns this node's ed25519 public key.",
+                "Node public key and build values",
+                "Returns this node's ed25519 public key and its build values: `version`, `git_revision` and `built_at` (musicindex ADR 0083 R-VERSION-3). An unknown value is null.",
                 "Core",
                 vec![],
                 None,
@@ -87,6 +87,7 @@ fn spec_value(mode: DocMode) -> Value {
                         json!({ "$ref": "#/components/schemas/NodeInfoResponse" }),
                         json!({
                             "node_pubkey": "0805c402f021e6e0dfbb6b2f5d34628f7b166b075a0170e6e5e293c50b3b55e2",
+                            "version": "0.21.1",
                             "git_revision": "a1b2c3d-dirty",
                             "built_at": "2026-09-25T10:30:45Z"
                         })

@@ -235,6 +235,18 @@ fn each_example_is_unchanged() {
             let then =
                 before["paths"][path][method]["responses"][status]["content"]["application/json"]
                     .get("example");
+            // musicindex ADR 0083 R-VERSION-3 adds `version` to the example of
+            // `get /node/info`. The frozen snapshot does not have the field.
+            let now = now.map(|example| {
+                let mut example = example.clone();
+                if route == "get /node/info"
+                    && let Some(fields) = example.as_object_mut()
+                {
+                    fields.remove("version");
+                }
+                example
+            });
+            let now = now.as_ref();
             if let (Some(now), Some(then)) = (now, then) {
                 compared += 1;
                 let (now, then) = without_live_include_lists(&route, now, then);

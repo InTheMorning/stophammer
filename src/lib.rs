@@ -37,7 +37,14 @@
 
 /// The `User-Agent` of each HTTP request that the node sends. Some hosts
 /// refuse a request with no `User-Agent`.
+/// It keeps the form `name/version` of musicindex ADR 0083 R-VERSION-6.
 pub const USER_AGENT: &str = concat!("stophammer/", env!("CARGO_PKG_VERSION"));
+
+/// The build values of this node: the version, the git revision and the build
+/// time (musicindex ADR 0083 R-VERSION-1). `build.rs` gives the git revision
+/// and the build time to the compiler.
+pub const BUILD_INFO: musicindex_build_info::BuildInfo =
+    musicindex_build_info::build_info!("stophammer");
 
 pub mod api;
 pub mod apply;
