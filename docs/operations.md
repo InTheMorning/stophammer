@@ -91,9 +91,11 @@ The `/node/info` endpoint gives the build values of musicindex ADR 0083: `versio
 Each release gives three roles: `stophammer-indexer`, `stophammer-node` and
 `stophammer-crawler`. The
 [releases page](https://github.com/InTheMorning/stophammer/releases) holds a
-tarball and an Arch package for each role, for x86_64. GHCR holds an image for
-each role, for `linux/amd64` and `linux/arm64`.
-[ADR 0063](adr/0063-a-release-publishes-role-packages.md) owns this list.
+tarball, an Arch package and a Debian package for each role, for x86_64. GHCR
+holds an image for each role, for `linux/amd64` and `linux/arm64`.
+[ADR 0063](adr/0063-a-release-publishes-role-packages.md) and
+[ADR 0105](adr/0105-a-release-publishes-a-debian-package-for-each-role.md) own
+this list.
 
 These files describe the deployment assets:
 
@@ -233,6 +235,14 @@ To verify the built Arch packages before publishing:
 ./scripts/verify-arch-packages.sh
 ```
 
+To build the Debian packages into `dist/deb/` from the role tarballs, and to
+verify them, a host needs `dpkg-deb`:
+
+```bash
+./scripts/build-deb-packages.sh
+./scripts/verify-deb-packages.sh
+```
+
 Tagged releases also publish multi-arch OCI images to GHCR for:
 
 - `stophammer-indexer`
@@ -240,7 +250,8 @@ Tagged releases also publish multi-arch OCI images to GHCR for:
 - `stophammer-crawler`
 
 Tagged releases also attach the Arch split packages and an
-`SHA256SUMS-arch-<version>.txt` file to the GitHub release.
+`SHA256SUMS-arch-<version>.txt` file to the GitHub release. They also attach the
+Debian packages and an `SHA256SUMS-deb-<version>.txt` file.
 
 The compose file intentionally uses runnable sample env files:
 

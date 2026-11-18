@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Make the assets of a release from the assets of its candidate, with no
-# build. The binaries and the Arch packages stay the same bytes. Only the
-# tarball names and their top directory change to the release tag.
+# build. The binaries, the Arch packages and the Debian packages stay the same
+# bytes. Only the tarball names and their top directory change to the release
+# tag.
 #
 # Usage: promote-release.sh <candidate-tag> <release-tag> <candidate-dir> <out-dir>
 set -euo pipefail
@@ -30,6 +31,7 @@ trap 'rm -rf "$work_dir"' EXIT
 # The candidate must pass its own checks before anything is promoted.
 DIST_DIR="$candidate_dir" bash "$repo_root/scripts/verify-release.sh" "$candidate"
 DIST_DIR="$candidate_dir" bash "$repo_root/scripts/verify-arch-packages.sh" "$candidate"
+DIST_DIR="$candidate_dir" bash "$repo_root/scripts/verify-deb-packages.sh" "$candidate"
 
 mkdir -p "$out_dir"
 out_dir="$(cd "$out_dir" && pwd)"
@@ -57,7 +59,14 @@ cp "$candidate_dir"/*.pkg.tar.zst "$out_dir/"
   sha256sum ./*.pkg.tar.zst > "SHA256SUMS-arch-${release}.txt"
 )
 
+cp "$candidate_dir"/*.deb "$out_dir/"
+(
+  cd "$out_dir"
+  sha256sum ./*.deb > "SHA256SUMS-deb-${release}.txt"
+)
+
 DIST_DIR="$out_dir" bash "$repo_root/scripts/verify-release.sh" "$release"
 DIST_DIR="$out_dir" bash "$repo_root/scripts/verify-arch-packages.sh" "$release"
+DIST_DIR="$out_dir" bash "$repo_root/scripts/verify-deb-packages.sh" "$release"
 
 printf 'promoted %s to %s under %s\n' "$candidate" "$release" "$out_dir"

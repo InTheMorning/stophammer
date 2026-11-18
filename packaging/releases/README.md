@@ -40,14 +40,22 @@ To verify the built Arch packages and their checksums:
 ./scripts/verify-arch-packages.sh
 ```
 
+To build the Debian packages from the role tarballs, and to verify them
+(ADR 0105):
+
+```bash
+./scripts/build-deb-packages.sh
+./scripts/verify-deb-packages.sh
+```
+
 Tagged releases also publish GHCR images for the same three operator roles:
 
 - `stophammer-indexer`
 - `stophammer-node`
 - `stophammer-crawler`
 
-The release workflow also builds and uploads the matching Arch packages as
-release assets, after a separate verification step.
+The release workflow also builds and uploads the matching Arch packages and
+Debian packages as release assets, after a separate verification step.
 
 By default it creates versioned tarballs under `dist/` using:
 

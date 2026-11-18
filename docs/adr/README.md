@@ -100,7 +100,8 @@ disagree.
 | [0075](0075-the-primary-is-the-only-peer-bootstrap.md) | The primary is the only peer bootstrap. A community node registers only with the primary. Supersedes ADR 0008 | Accepted |
 | [0066](0066-a-version-number-tells-what-to-upgrade.md) | Semantic versions. PATCH for fixes, MINOR for additions and, before 1.0, for breaks. The notes say when community nodes upgrade first | Accepted |
 | [0065](0065-a-release-promotes-its-candidate.md) | Only a candidate builds, and only on a commit that passed CI. A release tag publishes the files and images of its candidate on the same commits | Accepted |
-| [0063](0063-a-release-publishes-role-packages.md) | A release is one tag in each repository. It publishes role tarballs, Arch packages and images. Supersedes ADR 0010 | Accepted |
+| [0105](0105-a-release-publishes-a-debian-package-for-each-role.md) | A release also publishes a `.deb` for each role. `dpkg-deb` makes it from the role tarball, and the release workflow installs it on the runner. Cites musicindex ADR 0084. Changes ADR 0063 §3 | Proposed |
+| [0063](0063-a-release-publishes-role-packages.md) | A release is one tag in each repository. It publishes role tarballs, Arch packages and images. Supersedes ADR 0010. ADR 0105 adds the `.deb` | Accepted |
 | [0019](0019-tls-acme-let-s-encrypt.md) | TLS through ACME and Let's Encrypt. Three-tier node model | Accepted |
 | [0032](0032-retire-resolver-and-review-runtime.md) | Retire the resolver and the review runtime | Accepted |
 

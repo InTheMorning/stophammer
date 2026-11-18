@@ -15,6 +15,9 @@ Layout:
 - `arch/`
   - Arch Linux split-package metadata and install notes
   - built on top of the versioned assets in this directory
+- `debian/`
+  - the `postinst`, `prerm` and `postrm` scripts of the Debian packages (ADR 0105)
+  - `scripts/build-deb-packages.sh` makes the packages from the role tarballs
 - `sysusers.d/`
   - service users and groups for packaged installs
 - `tmpfiles.d/`

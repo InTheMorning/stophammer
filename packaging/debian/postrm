@@ -1,0 +1,11 @@
+#!/bin/sh
+# ADR 0105: systemd reads the units again after a remove. The service user and
+# the data folder stay, also after a purge, because the data folder holds the
+# database.
+set -e
+
+if [ "$1" = "remove" ] && [ -d /run/systemd/system ]; then
+    systemctl daemon-reload || true
+fi
+
+exit 0

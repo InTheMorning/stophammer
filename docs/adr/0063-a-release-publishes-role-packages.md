@@ -5,6 +5,9 @@ Accepted
 
 Supersedes [ADR 0010](archive/0010-distribution-and-deployment.md).
 
+- Changed by: [ADR 0105](0105-a-release-publishes-a-debian-package-for-each-role.md),
+  on 2026-11-18: §3, a Debian package for each role, for x86_64.
+
 ## Date
 2026-09-26
 

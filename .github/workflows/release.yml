@@ -234,6 +234,86 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # ADR 0105: the Debian packages hold the binaries of the role tarballs. No
+  # job builds the binaries again.
+  build-deb-packages:
+    name: Build Debian packages
+    runs-on: ubuntu-latest
+    needs: verify-tarballs
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      # The version of the crawler package comes from the Cargo.toml of the
+      # crawler at the same tag (ADR 0063 section 1).
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: InTheMorning/stophammer-crawler
+          ref: ${{ github.ref_name }}
+          path: stophammer-crawler
+
+      - name: Download release bundle
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: stophammer-release-bundle
+          path: dist
+
+      - name: Build Debian packages
+        run: bash ./scripts/build-deb-packages.sh "${GITHUB_REF_NAME}"
+
+      - name: Upload Debian package bundle
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: stophammer-deb-package-bundle
+          path: |
+            dist/deb/*.deb
+            dist/deb/SHA256SUMS-deb-*.txt
+
+  verify-deb-packages:
+    name: Verify Debian packages
+    runs-on: ubuntu-latest
+    needs: build-deb-packages
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Download Debian package bundle
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: stophammer-deb-package-bundle
+          path: dist/deb
+
+      - name: Smoke-check Debian packages
+        run: bash ./scripts/verify-deb-packages.sh "${GITHUB_REF_NAME}"
+
+      # The runner has systemd, so the check installs and removes each
+      # package.
+      - name: Install and remove each Debian package
+        run: sudo bash ./scripts/check-deb-install.sh
+
+  release-deb-packages:
+    name: Publish Debian packages
+    runs-on: ubuntu-latest
+    needs:
+      - verify-deb-packages
+      - release-tarballs
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: stophammer-deb-package-bundle
+          path: dist/deb
+
+      - name: Attach Debian packages to release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
+        with:
+          prerelease: true
+          make_latest: false
+          files: |
+            dist/deb/*.deb
+            dist/deb/SHA256SUMS-deb-*.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   # Each platform builds on a native runner, so no job emulates a CPU. The
   # indexer and node images share one builder stage, so one job builds both,
   # and the second target reuses the compile of the first. Each job pushes
@@ -514,5 +594,6 @@ jobs:
             dist/*.tar.gz
             dist/SHA256SUMS-*.txt
             dist/*.pkg.tar.zst
+            dist/*.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,15 @@
+#!/bin/sh
+# ADR 0105: make the service user and the data folder of the role from the
+# files in sysusers.d and tmpfiles.d. build-deb-packages.sh writes the name of
+# the file of the role in place of the marker.
+set -e
+
+if [ "$1" = "configure" ]; then
+    systemd-sysusers @CONF@
+    systemd-tmpfiles --create @CONF@
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload || true
+    fi
+fi
+
+exit 0

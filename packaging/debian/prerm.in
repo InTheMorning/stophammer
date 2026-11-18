@@ -1,0 +1,11 @@
+#!/bin/sh
+# ADR 0105: stop the units of the role before a remove, so that no removed
+# binary keeps the database or the port. build-deb-packages.sh writes the
+# units of the role in place of the marker.
+set -e
+
+if [ "$1" = "remove" ] && [ -d /run/systemd/system ]; then
+    systemctl stop @UNITS@ || true
+fi
+
+exit 0
