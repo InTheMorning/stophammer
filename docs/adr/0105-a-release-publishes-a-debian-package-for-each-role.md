@@ -1,8 +1,9 @@
 # ADR 0105: A Release Publishes A Debian Package For Each Role
 
 ## Status
-Proposed on 2026-11-18. The orchestrator session relayed the rules of
-musicindex ADR 0084. The operator accepts or changes the tool of §2.
+Accepted on 2026-11-18 by the operator. The orchestrator session relayed the
+rules of musicindex ADR 0084 and the decision of the operator. "Open Checks" gives the two
+checks of the first candidate.
 
 - Bar: crosses repositories. musicindex ADR 0084 R-PACKAGE-5 asks each
   repository for its own packaging record. The release workflow also reads
@@ -157,3 +158,13 @@ Mechanical:
 
 No `cargo test` examines this record. The checks need `dpkg-deb` and a host
 with systemd. The release workflow has the two.
+
+## Open Checks
+
+These checks stay open until the first candidate after this record runs the
+release workflow:
+
+1. The image of each role builds on GitHub. Since musicindex ADR 0083, the
+   build gets the crate `musicindex-build-info` from GitHub. No host builds
+   the images.
+2. `scripts/check-deb-install.sh` passes on the runner.

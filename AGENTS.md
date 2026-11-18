@@ -91,9 +91,10 @@ change of ADR 0050 §3 on 2026-11-13, a `304` after a permanent redirect.
   index with no release, and Studio can show it as a person. No code is
   written.
 - [ADR 0105](docs/adr/0105-a-release-publishes-a-debian-package-for-each-role.md)
-  is Proposed on 2026-11-18. The release workflow makes a `.deb` for each
-  role (musicindex ADR 0084). No candidate has run the new jobs. The operator
-  accepts the tool of §2. Main also holds the build values of musicindex ADR
+  is Accepted on 2026-11-18. The release workflow makes a `.deb` for each
+  role (musicindex ADR 0084). No candidate has run the new jobs. Its "Open
+  Checks" names the image build and the install check of the first candidate.
+  Main also holds the build values of musicindex ADR
   0083 in `GET /node/info` and `stophammer --version`. No release holds the two.
 - A restart of the gossip crawler reads many cold pages of the podping archive
   in its first seconds. This costs only disk reads, and no decision is open.
