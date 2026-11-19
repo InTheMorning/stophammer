@@ -701,7 +701,7 @@ On 2026-11-07, `GET /v1/feeds/recent?medium=musicL` lists the playlist "Deck Dar
 `GET /v1/search?q=Deck%20Darlings` gives no row, also with `type=feed`. The search
 `q=Local%20Theory%20Full%20Catalog&type=feed` also gives no row.
 
-ADR 0023 R-SCOPE-1 item 2 puts playlists in the Releases scope, and the site sends that scope as
+musicindex ADR 0085 R-SCOPE-1 item 2 puts playlists in the Releases scope, and the site sends that scope as
 `type=feed`. A person can thus not find a playlist by its title.
 
 The prefix match of Stophammer ADR 0086 does not change this. On 2026-11-07 after that change, `q=deck dar`
@@ -839,7 +839,7 @@ rows with the title only, and the five feeds are not in the Newest order of the 
 On 2026-11-08 the search row of the publisher feed jSmovie (`44f2785c-6a55-4f59-b47f-4a7fcedc7d01`) gave
 `two_way_link_count` 17. The site showed "Inferred artist · 17 albums", but each of the 17 releases has one track and
 no stated kind, so each one is a single (musicindex ADR 0020 R-WORD-1). The site now writes "17 releases" (musicindex
-ADR 0023 R-SCOPE-1 item 2). The operator asked on 2026-11-08 for the exact count of each kind, for example "17
+ADR 0085 R-SCOPE-1 item 2). The operator asked on 2026-11-08 for the exact count of each kind, for example "17
 singles".
 
 A row gives only a total now: `two_way_link_count` on each row with `include=link_facts`, and `release_count` on a
@@ -1076,7 +1076,7 @@ GET /v1/feeds/by-url?url=<the RSS URL, encoded as a query value>
 
 On 2026-11-08 the operator reports that the candidate `v0.19.0-rc.7` is deployed. `/openapi.json` gives the version `0.19.0`. `GET /v1/node/capabilities` lists `query`, `search`, `sync`, `push`, `name_lists`, `sort`, `feed_by_url`, `artist_newest`, `artist_role_filter`, `publisher_row_date`, `artist_row_release_artist` and `release_track_counts`.
 
-A `type=publisher&include=link_facts` search gives `{"1": 17}` for jSmovie. It gives 12 track counts with a sum of 52 for OLAMIDE, the same as its `two_way_link_count`. The `name` row of `$2 Holla` in `GET /v1/artist-names` gives `{"1": 2, "7": 1}` with `release_count` 3. This closes request 30. musicindex commit `b36d25f` (ADR 0023 R-WORD-9) makes the list rows of the site read the field.
+A `type=publisher&include=link_facts` search gives `{"1": 17}` for jSmovie. It gives 12 track counts with a sum of 52 for OLAMIDE, the same as its `two_way_link_count`. The `name` row of `$2 Holla` in `GET /v1/artist-names` gives `{"1": 2, "7": 1}` with `release_count` 3. This closes request 30. musicindex commit `b36d25f` (musicindex ADR 0085 R-WORD-9) makes the list rows of the site read the field.
 
 **Request 22, HTML entities in a description.** Accepted. Stophammer [ADR 0017](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0017-canonical-rss-parser-crate.md) owns the rule: the parser decodes entities. Parser commit `7130556` decodes the 252 named entities of HTML 4.01. On 2026-11-11 the gossip crawler runs it in the candidate `v0.19.0-rc.8`, and no release carries it.
 
