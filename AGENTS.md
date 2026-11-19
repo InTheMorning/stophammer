@@ -26,7 +26,7 @@ the image `stophammer-crawler:0.21.1`. The refill pass of ADR 0098 §6 ran on 20
 
 On 2026-11-12, the start log of release 0.20.0 gave the return cooldown 60 s, a
 limit of 3600 s and a reset after 86400 s. On 2026-11-12, a Studio move test
-passed on candidate `v0.20.0-rc.1`. Studio commit `f7d14c2` records it in
+passed on candidate `v0.20.0-rc.1`. Studio commit `e136789` records it in
 `docs/tasks/studio-v1-task-127-return-wait.md`.
 
 The last runs of `import` and `import-wavlake` used release 0.18.1. A timer

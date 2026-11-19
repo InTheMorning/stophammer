@@ -16,7 +16,7 @@ was the second return in 30 days. ADR 0083 section 5 gave it a wait of 1 hour.
 
 The node read the feed at 4:06:17 PM and kept the earlier URL. At 4:51 PM, after the
 wait, the record continued to have the earlier URL, because no new podping came. Studio records
-the test in its commit `b697538`, file
+the test in its commit `8461dc9`, file
 `docs/tasks/studio-v1-task-091-own-address-tag.md`.
 
 Studio asked three points:
