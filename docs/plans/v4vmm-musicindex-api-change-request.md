@@ -2,7 +2,7 @@
 
 > **Source.** This document comes from the v4vmm desktop client repository
 > (`git@github.com:InTheMorning/v4vmm.git`). The source path is
-> `docs/plans/musicindex-api-change-request.md` at commit `82c3c06`, dated
+> `docs/plans/musicindex-api-change-request.md` at commit `78e73af`, dated
 > 2026-09-21. The copy is dated 2026-09-22. The text is unchanged. One relative
 > link changed to a source path, because the annex is not in this repository.
 >

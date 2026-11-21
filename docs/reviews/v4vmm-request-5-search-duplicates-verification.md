@@ -87,7 +87,7 @@ the better of the two.
 
 ## The v4vmm Key
 
-The v4vmm commit `59c27e4` keyed `unique_hits` by `(entity_type, entity_id)`.
+The v4vmm commit `e583a7e` keyed `unique_hits` by `(entity_type, entity_id)`.
 For a track, `entity_id` is the track GUID, which is unique only in its feed.
 Two tracks with one GUID in two feeds are two entities, and that key dropped
 the second one. The key must hold `feed_guid`.

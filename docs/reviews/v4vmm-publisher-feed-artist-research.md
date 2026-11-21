@@ -3,7 +3,7 @@
 > **Source.** This document comes from the v4vmm desktop client repository
 > (`git@github.com:InTheMorning/v4vmm.git`). The source path is
 > `docs/notes/2026-09-23-publisher-feed-artist-research.md`. On 2026-09-23 the
-> file was not yet in a commit. The v4vmm branch head was `baa6486`. The copy
+> file was not yet in a commit. The v4vmm branch head was `97dba5d`. The copy
 > is dated 2026-09-23. The text is unchanged. One relative link changed to a
 > source path, because v4vmm ADR 0076 is not in this repository.
 >
