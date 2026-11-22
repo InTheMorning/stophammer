@@ -83,8 +83,8 @@ For one form, the node reads three sources in this sequence:
 | 3 | `feed_url_observations.url` | `observed_url` | The feed of the observed GUID |
 
 A form goes through all three sources before the next form starts. A match whose
-feed the node no longer holds does not give that feed. When a GUID change retired
-it (ADR 0052 §5), the answer is `404` with `superseded_by`, as on
+feed the node no longer holds does not give that feed. When a GUID change replaced
+it (ADR 0106 §3), the answer is `404` with `superseded_by`, as on
 `GET /v1/feeds/{guid}`. Otherwise the next match counts. With no match, the
 answer is `404` with `{"error": "feed not found"}`.
 

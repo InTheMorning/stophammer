@@ -76,8 +76,8 @@ A hold with a null `released_at` is active. A released hold has a value.
 
 This applies to the three paths of the context. A retire that writes a block of
 ADR 0053 writes no hold, because the block already rejects the GUID and the
-URL. A retire of an old GUID by ADR 0052 §5 writes no hold, because
-`feed_guid_supersessions` links that GUID to its successor.
+URL. A GUID change of ADR 0106 §2 writes no hold, because
+`feed_guid_supersessions` links the old GUID to its successor.
 
 The table is local to the primary, as `source_gone_answers` is. It makes no
 event. A community node holds no row, because only the primary classifies a

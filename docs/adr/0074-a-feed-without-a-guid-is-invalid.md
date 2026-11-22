@@ -142,8 +142,8 @@ those two feeds give a GUID.
 [The count record](../reviews/adr-0074-feeds-without-guid-count.md) gives the
 method and the limits.
 
-When the source adds a `podcast:guid` at the same URL, ADR 0052 §4 applies. The
-node records a pending GUID change and makes no second record.
+When the source adds a `podcast:guid` at the same URL, ADR 0106 §1 applies. The
+record changes its GUID in place, and the node makes no second record.
 
 ## Alternatives Considered
 

@@ -82,8 +82,8 @@ pub enum EventType {
     FeedGuidChangeObserved,
     /// A historical operator decision for a GUID change (ADR 0106 §5).
     FeedGuidChangeDecided,
-    /// A GUID change transition retired the old record and linked it to the
-    /// new one (ADR 0052 §5, task 007).
+    /// A historical retire of an old GUID that linked it to the new one
+    /// (ADR 0106 §5).
     FeedGuidSuperseded,
 }
 
