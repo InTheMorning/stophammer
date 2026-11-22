@@ -52,7 +52,7 @@ Each line gives the owner, the condition and the next action.
   [The guide](docs/publisher-links-guide.md) tells a feed author how to write
   the links.
 - [The remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md)
-  gives the four pending GUID changes of ADR 0052 and two research items.
+  gives the four approved GUID changes of ADR 0052 and two research items.
 
 ### Operating Facts
 
