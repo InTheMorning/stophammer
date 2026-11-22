@@ -2,7 +2,8 @@
 
 ## Status
 Accepted on 2026-11-14. Release 0.21.0 of 2026-11-17 holds it, and its refill
-pass ran on 2026-11-17. It answers
+pass ran on 2026-11-17. On 2026-11-17, the backup gave no `route_type`
+`lightning` in the 225 feeds that the new parser stored (§2). It answers
 [the research request of 2026-11-13](../plans/research-value-block-type-request.md),
 V1 to V4 and its three questions.
 

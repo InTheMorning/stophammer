@@ -4,7 +4,8 @@
 Accepted on 2026-11-17. The operator selected options A and B of the
 proposal, and asked that the crawler avoids `429` answers of feed hosts (§6).
 Release 0.21.1 holds it. "Open Questions" gives the values that the operator
-did not set.
+did not set. The first `podcastindex` pass of release 0.21.1 gave
+`url_differences=71`, and no row was a move to make. §5 uses this count.
 
 - Bar: crosses repositories. This repository holds the schedule and the
   runbook, and `stophammer-crawler` holds the report of §2.

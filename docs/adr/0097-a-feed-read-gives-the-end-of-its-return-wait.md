@@ -1,7 +1,11 @@
 # ADR 0097: A Feed Read Gives The End Of Its Return Wait
 
 ## Status
-Accepted on 2026-11-12 by the operator.
+Accepted on 2026-11-12 by the operator. On 2026-11-12, the start log of
+release 0.20.0 gave the return cooldown 60 s, a limit of 3600 s and a reset
+after 86400 s. On 2026-11-12, a Studio move test passed on candidate
+`v0.20.0-rc.1`. Studio commit `e136789` records it in
+`docs/tasks/studio-v1-task-127-return-wait.md`.
 It answers three points of a Studio request through the orchestrator.
 
 - Changes: ADR 0096 section 1, the defaults.

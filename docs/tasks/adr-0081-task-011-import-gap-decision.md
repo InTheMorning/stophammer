@@ -33,6 +33,8 @@ Two limits apply to the count:
 - A pass that stopped under §6 wrote no count for its day. The record names
   each such day from the run log.
 
+The last runs of `import` and `import-wavlake` used release 0.18.1.
+
 The crawler volume holds the state files. A query opens a copy in read-only
 mode and changes nothing. The handoff gives the exact block, as the VPS check
 of 2026-10-31 did.
