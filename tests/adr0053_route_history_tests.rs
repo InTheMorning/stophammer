@@ -754,3 +754,56 @@ async fn a_name_only_change_logs_no_warning() {
         "ADR 0053 section 4: a name-only change is not a recipient change: {lines:?}"
     );
 }
+
+/// ADR 0053 section 4 and ADR 0106 §2: a GUID change compares the recipients
+/// with the record under its stored GUID, so a change of recipients logs.
+#[tokio::test]
+async fn a_guid_change_with_new_recipients_logs_a_warning() {
+    let buffer = captured_warnings();
+    let crawl_token = "adr0053-route-history-token-log-3";
+    let db = common::test_db_arc();
+    let state = test_app_state(Arc::clone(&db), crawl_token);
+    let app = stophammer::api::build_router(state);
+
+    let old_guid = "adr0053-route-history-log-feed-3-old";
+    let new_guid = "adr0053-route-history-log-feed-3-new";
+    let track_guid = "adr0053-route-history-log-3-track-01";
+    let canonical_url = "https://example.com/adr0053-route-history-log-3.xml";
+
+    for (guid, feed_address, track_address, hash) in [
+        (old_guid, "a@ln.example", "t@ln.example", "rh-log-5"),
+        (new_guid, "b@ln.example", "u@ln.example", "rh-log-6"),
+    ] {
+        let data = feed_data_with_feed_route(
+            guid,
+            "Route Log Feed",
+            track_guid,
+            "Artist",
+            feed_address,
+            100,
+            track_address,
+        );
+        let (status, body) = ingest(
+            app.clone(),
+            &ingest_payload(canonical_url, canonical_url, crawl_token, hash, &data),
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert_eq!(body["accepted"], true, "the ingest must succeed: {body:?}");
+    }
+
+    let lines = warning_lines_for(&buffer, new_guid);
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("feed payment recipients changed")),
+        "ADR 0053 section 4: the GUID change must log the feed recipient change: {lines:?}"
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("track payment recipients changed")
+                && line.contains(track_guid)),
+        "ADR 0053 section 4: the GUID change must log the track recipient change: {lines:?}"
+    );
+}

@@ -141,6 +141,7 @@ fn ingest_and_count_track_events(
         &track_tuples,
         now,
         &[], // no warnings
+        false,
     )
     .expect("build_diff_events");
 

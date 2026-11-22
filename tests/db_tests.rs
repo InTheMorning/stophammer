@@ -1760,6 +1760,7 @@ fn ingest_transaction_persists_source_claim_snapshots_and_events() {
         &[],
         now,
         &[],
+        false,
     )
     .expect("build diff events");
 
@@ -1837,6 +1838,7 @@ fn ingest_transaction_persists_source_claim_snapshots_and_events() {
         &[],
         later,
         &[],
+        false,
     )
     .expect("build diff events again");
     let repeat_types: Vec<_> = repeat_rows.iter().map(|e| e.event_type.clone()).collect();

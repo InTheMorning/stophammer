@@ -183,3 +183,13 @@ Report each result. Report each test that you changed or deleted, and why.
 
 Write each comment in Simplified Technical English
 (`/home/citizen/.agents/skills/asd-ste100/SKILL.md`).
+
+## Operator Choices
+
+- 2026-11-22, review of `6509bc5` (F6): after a change from `G1` to `G2`,
+  the GUID `G1` is free. A different URL that declares `G1` makes a new
+  record, as in Podcast Index. A live record has priority over a link, so
+  each write of a feed row deletes the link whose old GUID is the GUID of
+  that row. The primary and each community node delete the same link. ADR
+  0106 §3 gives the link only for an old GUID that no record holds, so this
+  needs no new ADR.

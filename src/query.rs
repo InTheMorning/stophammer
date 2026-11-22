@@ -3961,7 +3961,13 @@ async fn handle_get_feed_track(
         })?;
 
         let Some(row) = get_track_row_for_feed(&conn, &feed_guid, &track_guid)? else {
-            return Ok::<_, api::ApiError>(match superseded_by(&conn, &feed_guid)? {
+            // ADR 0106 §3: the link applies only to an old GUID that no
+            // record holds. A live feed with no such track gives the usual
+            // `404`.
+            if db::get_feed_by_guid(&conn, &feed_guid)?.is_some() {
+                return Ok::<_, api::ApiError>(TrackDetailOutcome::NotFound);
+            }
+            return Ok(match superseded_by(&conn, &feed_guid)? {
                 Some(superseded_by) => TrackDetailOutcome::Superseded { superseded_by },
                 None => TrackDetailOutcome::NotFound,
             });

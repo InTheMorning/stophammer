@@ -16,6 +16,8 @@ work.
   ADR 0052 stay.
 - Changes: ADR 0052 §1, the first condition for a permanent redirect only
   (§6 below), and the ADR 0052 guard for a `301` to a different GUID.
+- Changes: [ADR 0074](0074-a-feed-without-a-guid-is-invalid.md) §4. A GUID
+  that the source adds changes the record in place (§1).
 - Uses: ADR 0040 for track identity, ADR 0044 rule 4 for a `v1` field, ADR
   0051 for the source URL, ADR 0079 for a retired GUID.
 

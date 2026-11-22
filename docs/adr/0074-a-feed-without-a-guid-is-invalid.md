@@ -5,6 +5,10 @@ Accepted on 2026-10-20. Tasks 001 to 003 give the build of §1 to §3. §4 is
 decided on 2026-10-21 and needs no build. It supersedes the section
 "`podcast:guid` absent → empty string" of ADR 0011.
 
+- Changed by: [ADR 0106](0106-a-feed-changes-its-guid-in-place.md) §1: a
+  GUID that the source adds changes the record in place. No GUID change
+  waits for the operator (§4).
+
 ## Date
 2026-10-20
 

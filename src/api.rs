@@ -2342,6 +2342,51 @@ fn redirect_move_write(
     }
 }
 
+/// ADR 0053 section 3: an older copy does not replace a newer copy.
+///
+/// `stored_guid` is the GUID of the stored record: the declared GUID for an
+/// update, and the stored GUID for a GUID change (ADR 0106 §2 step 4). The
+/// rule applies only when the stored record and the submission both carry
+/// `last_build_date`. It does not read `force_reingest`. Gives the
+/// `stale_submission` answer, or `None` when the rule does not refuse.
+///
+/// # Errors
+///
+/// Returns [`ApiError`] if a database read fails.
+fn stale_submission_refusal(
+    conn: &rusqlite::Connection,
+    stored_guid: &str,
+    feed_data: &ingest::IngestFeedData,
+    canonical_url: &str,
+) -> Result<Option<ingest::IngestResponse>, ApiError> {
+    let stored_last_build_date =
+        db::get_feed(conn, stored_guid)?.and_then(|stored_feed| stored_feed.last_build_date);
+    let (Some(stored_last_build_date), Some(submitted_last_build_date)) =
+        (stored_last_build_date, feed_data.last_build_date)
+    else {
+        return Ok(None);
+    };
+    if submitted_last_build_date >= stored_last_build_date {
+        return Ok(None);
+    }
+    tracing::info!(
+        feed_guid = feed_data.feed_guid.as_str(),
+        stored_guid,
+        canonical_url,
+        stored_last_build_date,
+        submitted_last_build_date,
+        "ADR 0053 section 3: ingest rejected, submission is stale"
+    );
+    Ok(Some(ingest::IngestResponse {
+        accepted: false,
+        no_change: false,
+        reason: Some("stale_submission".to_string()),
+        events_emitted: vec![],
+        warnings: vec![],
+        source_url: None,
+    }))
+}
+
 /// ADR 0079 section 2 and ADR 0106 §8 step 4: an active hold on `feed_guid`
 /// admits the GUID only from the held URL.
 ///
@@ -2702,6 +2747,13 @@ async fn handle_ingest_feed(
             {
                 req.force_reingest = true;
             }
+            // ADR 0106 §8: for a GUID change, steps 4 and 5 come before the
+            // verifier chain (step 6). An active hold on the new GUID refuses
+            // here. A body that blocks this index skips the chain, so that
+            // the write phase retires the record whatever the verifiers
+            // give. The write phase does the two checks again under the
+            // writer lock.
+            let mut guid_change_skips_chain = false;
             if let Some(feed_data) = req.feed_data.as_ref()
                 && matches!(
                     db::classify_submission(
@@ -2714,6 +2766,16 @@ async fn handle_ingest_feed(
                 )
             {
                 req.force_reingest = true;
+                if let Some(refusal) = retired_source_refusal(
+                    &reader,
+                    &feed_data.feed_guid,
+                    &req.source_url,
+                    &req.canonical_url,
+                    "GuidChange",
+                )? {
+                    return Ok((refusal, vec![], vec![]));
+                }
+                guid_change_skips_chain = ingest::source_blocks_this_index(&feed_data.blocks);
             }
 
             // 1. Get existing feed (read-only)
@@ -2726,10 +2788,14 @@ async fn handle_ingest_feed(
                 existing: existing.as_ref(),
             };
 
-            match state2.chain.run(&ctx) {
-                Err(ref e) if is_no_change_reason(&e.0) => ReadPhaseOutcome::NoChange,
-                Err(e) => ReadPhaseOutcome::Rejected(e.0),
-                Ok(w) => ReadPhaseOutcome::Verified(w),
+            if guid_change_skips_chain {
+                ReadPhaseOutcome::Verified(vec![])
+            } else {
+                match state2.chain.run(&ctx) {
+                    Err(ref e) if is_no_change_reason(&e.0) => ReadPhaseOutcome::NoChange,
+                    Err(e) => ReadPhaseOutcome::Rejected(e.0),
+                    Ok(w) => ReadPhaseOutcome::Verified(w),
+                }
             }
         };
         // reader is dropped here — writer lock is never contested by verification
@@ -2911,31 +2977,13 @@ async fn handle_ingest_feed(
                 // move is classified as Mirror, not Update, so this arm
                 // never sees one; a permanent-redirect move is classified as
                 // Update and still passes through this check.
-                let stored_last_build_date = db::get_feed(&conn, &feed_data.feed_guid)?
-                    .and_then(|stored_feed| stored_feed.last_build_date);
-                if let (Some(stored_last_build_date), Some(submitted_last_build_date)) =
-                    (stored_last_build_date, feed_data.last_build_date)
-                    && submitted_last_build_date < stored_last_build_date
-                {
-                    tracing::info!(
-                        feed_guid = feed_data.feed_guid.as_str(),
-                        canonical_url = req.canonical_url.as_str(),
-                        stored_last_build_date,
-                        submitted_last_build_date,
-                        "ADR 0053 section 3: ingest rejected, submission is stale"
-                    );
-                    return Ok((
-                        ingest::IngestResponse {
-                            accepted: false,
-                            no_change: false,
-                            reason: Some("stale_submission".to_string()),
-                            events_emitted: vec![],
-                            warnings: vec![],
-                            source_url: None,
-                        },
-                        vec![],
-                        vec![],
-                    ));
+                if let Some(refusal) = stale_submission_refusal(
+                    &conn,
+                    &feed_data.feed_guid,
+                    feed_data,
+                    &req.canonical_url,
+                )? {
+                    return Ok((refusal, vec![], vec![]));
                 }
 
                 // ADR 0057 section 3: the node applies the block rule after the
@@ -3148,6 +3196,14 @@ async fn handle_ingest_feed(
                 )? {
                     return Ok((refusal, vec![], vec![]));
                 }
+                // ADR 0106 §2 step 4: the body applies as an ordinary update,
+                // so the ADR 0053 section 3 check compares it with the stored
+                // record under its stored GUID.
+                if let Some(refusal) =
+                    stale_submission_refusal(&conn, &held_guid, feed_data, &req.canonical_url)?
+                {
+                    return Ok((refusal, vec![], vec![]));
+                }
                 // ADR 0106 §8 step 5: a body that blocks this index retires
                 // the record under its stored GUID, as for an update. The
                 // GUID does not change first.
@@ -3265,8 +3321,14 @@ async fn handle_ingest_feed(
         // §11 (release B): the ingest makes no artist and no credit from this
         // text; it only stores `release_artist` on the feed and track rows.
         let (artist_name, release_artist_source) = derive_release_artist(feed_data);
+        // ADR 0106 §2: the stored record of a GUID change has the old GUID
+        // until the ingest transaction. Each read of the stored state before
+        // that transaction uses `stored_guid`.
+        let stored_guid = guid_change_write
+            .as_ref()
+            .map_or(feed_guid_str, |change| change.old_guid.as_str());
         let existing_live_events =
-            db::get_live_events_for_feed(&conn, feed_guid_str).map_err(ApiError::from)?;
+            db::get_live_events_for_feed(&conn, stored_guid).map_err(ApiError::from)?;
 
         // 7. Compute newest_item_at and oldest_item_at from track pub_dates.
         // ADR 0064 section 4: a live item makes no track, so it gives no
@@ -3282,9 +3344,6 @@ async fn handle_ingest_feed(
         // through.
         // ADR 0106 §6: a GUID change with no move keeps the stored source URL
         // of the record, which is stored under the old GUID.
-        let stored_guid = guid_change_write
-            .as_ref()
-            .map_or(feed_guid_str, |change| change.old_guid.as_str());
         let feed_url = if let Some((_, new_feed_url, _)) = &record_move {
             new_feed_url.clone()
         } else {
@@ -3710,11 +3769,12 @@ async fn handle_ingest_feed(
         // 9b. ADR 0053 section 4: log each change of the payment recipients
         // of the feed and of each track, before the ingest transaction
         // writes the new state. A new feed or a new track logs nothing,
-        // because there is no stored recipient set to compare it to.
-        if db::get_feed_by_guid(&conn, &feed_data.feed_guid)?.is_some() {
+        // because there is no stored recipient set to compare it to. A GUID
+        // change compares with the record under its stored GUID (ADR 0106).
+        if db::get_feed_by_guid(&conn, stored_guid)?.is_some() {
             let old_feed_set = model::feed_recipient_set(&db::get_feed_payment_routes_for_feed(
                 &conn,
-                &feed_data.feed_guid,
+                stored_guid,
             )?);
             let new_feed_set = model::feed_recipient_set(&feed_routes);
             if old_feed_set != new_feed_set {
@@ -3728,12 +3788,12 @@ async fn handle_ingest_feed(
             }
         }
         for (track, routes, _vts, _remote_items) in &track_tuples {
-            if db::get_track_for_feed(&conn, &feed_data.feed_guid, &track.track_guid)?.is_none() {
+            if db::get_track_for_feed(&conn, stored_guid, &track.track_guid)?.is_none() {
                 continue;
             }
             let old_track_set = model::recipient_set(&db::get_payment_routes_for_feed_track(
                 &conn,
-                &feed_data.feed_guid,
+                stored_guid,
                 &track.track_guid,
             )?);
             let new_track_set = model::recipient_set(routes);
@@ -3771,6 +3831,7 @@ async fn handle_ingest_feed(
             &track_tuples,
             now,
             &warnings,
+            guid_change_write.is_some(),
         )
         .map_err(|e| ApiError {
             status: StatusCode::INTERNAL_SERVER_ERROR,

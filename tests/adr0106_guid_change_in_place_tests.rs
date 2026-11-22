@@ -231,20 +231,6 @@ fn table_rows(
         .expect("read rows")
 }
 
-fn all_rows(db: &Arc<Mutex<rusqlite::Connection>>, sql: &str) -> Vec<Vec<rusqlite::types::Value>> {
-    let conn = db.lock().expect("lock database");
-    let mut statement = conn.prepare(sql).expect("prepare row query");
-    statement
-        .query_map([], |row| {
-            (0..row.as_ref().column_count())
-                .map(|index| row.get(index))
-                .collect()
-        })
-        .expect("query rows")
-        .collect::<Result<Vec<_>, _>>()
-        .expect("read rows")
-}
-
 fn guid_supersession(
     db: &Arc<Mutex<rusqlite::Connection>>,
     old_guid: &str,
@@ -833,18 +819,7 @@ async fn a_replica_applying_the_events_has_the_same_rows_and_supersession() {
         stored_feed(&replica_db, &auto_g2).expect("the replica must have admitted the new record");
     assert_eq!(replica_new_feed.feed_url, auto_url);
     assert_eq!(stored_track_guids(&replica_db, &auto_g2).len(), 5);
-    for sql in [
-        "SELECT * FROM feeds ORDER BY feed_guid",
-        "SELECT * FROM tracks ORDER BY feed_guid, track_guid",
-        "SELECT * FROM payment_routes ORDER BY feed_guid, track_guid, id",
-        "SELECT * FROM feed_guid_supersessions ORDER BY old_guid",
-    ] {
-        assert_eq!(
-            all_rows(&replica_db, sql),
-            all_rows(&db, sql),
-            "primary and replica rows must match for {sql}"
-        );
-    }
+    assert_replica_rows_match(&db, &replica_db);
 
     let primary_supersession = guid_supersession(&db, auto_g1).expect("primary supersession");
     let replica_supersession =
@@ -854,6 +829,367 @@ async fn a_replica_applying_the_events_has_the_same_rows_and_supersession() {
         replica_supersession.source_url,
         primary_supersession.source_url
     );
+}
+
+/// Each table that holds a set of the record, or a link (ADR 0106
+/// acceptance 6).
+const REPLICATED_TABLES: [&str; 18] = [
+    "feeds",
+    "tracks",
+    "payment_routes",
+    "value_time_splits",
+    "feed_payment_routes",
+    "feed_list_value_raw",
+    "feed_remote_items_raw",
+    "track_remote_items_raw",
+    "live_events",
+    "source_contributor_claims",
+    "source_entity_ids",
+    "source_entity_links",
+    "source_release_claims",
+    "source_item_enclosures",
+    "source_item_transcripts",
+    "source_platform_claims",
+    "feed_guid_supersessions",
+    "feed_url_observations",
+];
+
+/// The rows of `table` in a sorted text form, with no surrogate `id`
+/// column. Each node gives its own `id` values, so they do not compare.
+fn rows_without_id(db: &Arc<Mutex<rusqlite::Connection>>, table: &str) -> Vec<String> {
+    let conn = db.lock().expect("lock database");
+    let mut statement = conn
+        .prepare(&format!("SELECT * FROM {table}"))
+        .expect("prepare row query");
+    let keep: Vec<usize> = statement
+        .column_names()
+        .enumerate()
+        .filter(|(_, name)| *name != "id")
+        .map(|(index, _)| index)
+        .collect();
+    let mut rows: Vec<String> = statement
+        .query_map([], |row| {
+            keep.iter()
+                .map(|index| row.get::<_, rusqlite::types::Value>(*index))
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .expect("query rows")
+        .map(|row| format!("{:?}", row.expect("read row")))
+        .collect();
+    rows.sort();
+    rows
+}
+
+/// Asserts that each table of [`REPLICATED_TABLES`] has the same rows on the
+/// primary and on the replica (ADR 0106 acceptance 6).
+fn assert_replica_rows_match(
+    primary: &Arc<Mutex<rusqlite::Connection>>,
+    replica: &Arc<Mutex<rusqlite::Connection>>,
+) {
+    for table in REPLICATED_TABLES {
+        assert_eq!(
+            rows_without_id(replica, table),
+            rows_without_id(primary, table),
+            "primary and replica rows must match for {table}"
+        );
+    }
+}
+
+/// Applies each event of the primary to a new replica (ADR 0106 §5).
+fn replica_of(primary: &Arc<Mutex<rusqlite::Connection>>) -> Arc<Mutex<rusqlite::Connection>> {
+    let events: Vec<stophammer::event::Event> = {
+        let conn = primary.lock().expect("lock db");
+        stophammer::db::get_events_since(&conn, 0, 10_000).expect("read events")
+    };
+    let replica_db = common::test_db_arc();
+    let replica_pool = common::wrap_pool(Arc::clone(&replica_db));
+    for ev in &events {
+        stophammer::apply::apply_single_event(&replica_pool, ev).expect("apply on the replica");
+    }
+    replica_db
+}
+
+/// A body with each set: feed routes, remote items, links, entity IDs, live
+/// items and track remote items (ADR 0106 acceptance 6).
+fn feed_data_with_each_set(feed_guid: &str, title: &str) -> serde_json::Value {
+    let mut data = feed_data(feed_guid, title);
+    data["remote_items"] = serde_json::json!([{
+        "position": 0,
+        "medium": "music",
+        "remote_feed_guid": "99999999-9999-9999-9999-999999999901",
+        "remote_feed_url": "https://remote.example/feed.xml"
+    }]);
+    data["links"] = serde_json::json!([{
+        "position": 0,
+        "link_type": "website",
+        "url": "https://artist.example/",
+        "extraction_path": "feed.link"
+    }]);
+    data["entity_ids"] = serde_json::json!([{
+        "position": 0,
+        "scheme": "nostr_npub",
+        "value": "npub1adr0106sets"
+    }]);
+    data["live_items"] = serde_json::json!([{
+        "live_item_guid": "live-sets",
+        "title": "Live item",
+        "status": "pending",
+        "start_at": 1_900_000_000,
+        "end_at": 1_900_003_600,
+        "explicit": false
+    }]);
+    data["tracks"][0]["remote_items"] = serde_json::json!([{
+        "position": 0,
+        "medium": "music",
+        "remote_feed_guid": "99999999-9999-9999-9999-999999999902",
+        "remote_feed_url": "https://remote.example/track.xml"
+    }]);
+    data
+}
+
+/// ADR 0106 acceptance 6: the GUID change body removes each set. The replica
+/// deletes the same rows as the primary.
+#[tokio::test]
+async fn a_replica_deletes_each_set_that_the_guid_change_body_removes() {
+    let b = Bench::new().await;
+    accept(
+        b.app(),
+        S,
+        TOKEN_002,
+        "sets-g1",
+        &feed_data_with_each_set(G1, "R"),
+    )
+    .await;
+    let mut bare = feed_data(G2, "R");
+    bare["feed_payment_routes"] = serde_json::json!([]);
+    accept(b.app(), S, TOKEN_002, "sets-g2", &bare).await;
+    {
+        let conn = b.db.lock().expect("lock db");
+        for table in [
+            "feed_payment_routes",
+            "feed_remote_items_raw",
+            "live_events",
+        ] {
+            let count: i64 = conn
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .expect("count rows");
+            assert_eq!(count, 0, "the primary must have no row in {table}");
+        }
+    }
+    let replica_db = replica_of(&b.db);
+    assert_replica_rows_match(&b.db, &replica_db);
+}
+
+/// ADR 0053 section 3 and ADR 0106 §2 step 4: an older copy with the old GUID
+/// is stale after the change. The record keeps the new GUID.
+#[tokio::test]
+async fn an_older_copy_with_the_old_guid_is_stale_after_a_guid_change() {
+    let b = Bench::new().await;
+    let mut old_copy = feed_data(G1, "R");
+    old_copy["last_build_date"] = serde_json::json!(2_000_000_000_i64);
+    accept(b.app(), S, TOKEN_002, "stale-g1", &old_copy).await;
+    let mut new_copy = feed_data(G2, "R");
+    new_copy["last_build_date"] = serde_json::json!(2_000_000_100_i64);
+    accept(b.app(), S, TOKEN_002, "stale-g2", &new_copy).await;
+
+    let resp = submit(b.app(), S, TOKEN_002, "stale-g1-again", &old_copy).await;
+    assert_eq!(resp["accepted"], false, "{resp:?}");
+    assert_eq!(resp["reason"], "stale_submission", "{resp:?}");
+    assert!(stored_feed(&b.db, G1).is_none(), "no record has G1");
+    let kept = stored_feed(&b.db, G2).expect("R keeps G2");
+    assert_eq!(kept.last_build_date, Some(2_000_000_100));
+}
+
+/// Builds a state whose verifier chain also runs `v4v_payment`.
+fn state_with_payment_verifier(
+    db: &Arc<Mutex<rusqlite::Connection>>,
+) -> Arc<stophammer::api::AppState> {
+    let base = test_app_state(Arc::clone(db), TOKEN_002);
+    let spec = stophammer::verify::ChainSpec {
+        names: vec!["content_hash".to_string(), "v4v_payment".to_string()],
+    };
+    let chain = stophammer::verify::build_chain(&spec, TOKEN_002.to_string());
+    Arc::new(stophammer::api::AppState {
+        db: stophammer::db_pool::DbPool::from_writer_only(Arc::clone(db)),
+        chain: Arc::new(chain),
+        signer: Arc::clone(&base.signer),
+        node_pubkey_hex: base.node_pubkey_hex.clone(),
+        admin_token: ADMIN_TOKEN.into(),
+        sync_token: None,
+        push_client: reqwest::Client::new(),
+        push_subscribers: Arc::new(RwLock::new(HashMap::new())),
+        sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
+        source_gone_hosts: Vec::new(),
+        skip_ssrf_validation: true,
+        artist_name_cache: stophammer::query::ArtistNameCache::default(),
+    })
+}
+
+/// A body with no payment route and no track. `v4v_payment` refuses it.
+fn body_with_no_payment(feed_guid: &str) -> serde_json::Value {
+    serde_json::json!({
+        "feed_guid": feed_guid,
+        "title": "R",
+        "raw_medium": "music",
+        "explicit": false,
+        "tracks": []
+    })
+}
+
+/// ADR 0106 §8: step 5 comes before step 6. A GUID change body that blocks
+/// this index retires the record, also when a verifier refuses the body.
+#[tokio::test]
+async fn a_blocked_guid_change_retires_the_record_before_the_verifiers() {
+    let b = Bench::new().await;
+    let state = state_with_payment_verifier(&b.db);
+    let mut blocked = body_with_no_payment(G2);
+    blocked["blocks"] = serde_json::json!([{"id": null, "value": "yes"}]);
+    let resp = submit(
+        stophammer::api::build_router(state),
+        S,
+        TOKEN_002,
+        "g2-blocked-no-pay",
+        &blocked,
+    )
+    .await;
+    assert_eq!(resp["accepted"], false, "{resp:?}");
+    assert_eq!(resp["reason"], "source_blocked", "{resp:?}");
+    assert!(stored_feed(&b.db, G1).is_none(), "R is retired");
+    assert!(stored_feed(&b.db, G2).is_none(), "no record has G2");
+}
+
+/// ADR 0106 §8: step 4 comes before step 6. A hold on the new GUID refuses
+/// the GUID change, also when a verifier refuses the body.
+#[tokio::test]
+async fn a_held_guid_change_is_refused_before_the_verifiers() {
+    let b = Bench::new().await;
+    insert_hold(&b.db, G2, "https://other.example/feed.xml");
+    let state = state_with_payment_verifier(&b.db);
+    let resp = submit(
+        stophammer::api::build_router(state),
+        S,
+        TOKEN_002,
+        "g2-held-no-pay",
+        &body_with_no_payment(G2),
+    )
+    .await;
+    assert_eq!(resp["accepted"], false, "{resp:?}");
+    assert_eq!(resp["reason"], "retired_source_conflict", "{resp:?}");
+    assert_eq!(stored_feed(&b.db, G1).expect("R keeps G1").feed_url, S);
+}
+
+/// A body whose live items have the given statuses (ADR 0064).
+fn feed_data_with_live_items(feed_guid: &str, items: &[(&str, &str)]) -> serde_json::Value {
+    let mut data = feed_data(feed_guid, "R");
+    data["live_items"] = serde_json::Value::Array(
+        items
+            .iter()
+            .map(|(guid, status)| {
+                serde_json::json!({
+                    "live_item_guid": guid,
+                    "title": format!("Live {guid}"),
+                    "status": status,
+                    "start_at": 1_900_000_000,
+                    "end_at": 1_900_003_600,
+                    "explicit": false
+                })
+            })
+            .collect(),
+    );
+    data
+}
+
+/// ADR 0106 §2: the live frames of a GUID change compare with the live items
+/// of the record under its stored GUID.
+#[tokio::test]
+async fn a_guid_change_sends_live_frames_from_the_stored_live_items() {
+    let b = Bench::new().await;
+    accept(
+        b.app(),
+        S,
+        TOKEN_002,
+        "live-g1",
+        &feed_data_with_live_items(G1, &[("live-a", "live"), ("live-b", "live")]),
+    )
+    .await;
+    accept(
+        b.app(),
+        S,
+        TOKEN_002,
+        "live-g2",
+        &feed_data_with_live_items(G2, &[("live-a", "live"), ("live-b", "ended")]),
+    )
+    .await;
+    let frames = b.state.sse_registry.recent_events(G2);
+    let types: Vec<&str> = frames.iter().map(|f| f.event_type.as_str()).collect();
+    assert!(
+        !types.contains(&"live_event_started"),
+        "an item that was live under G1 must not start again: {types:?}"
+    );
+    assert!(
+        types.contains(&"live_event_ended"),
+        "an item that ended in the body must give live_event_ended: {types:?}"
+    );
+}
+
+/// ADR 0106 §3: the link applies only to an old GUID that no record holds. A
+/// different URL takes the old GUID as a new record, and the link goes.
+#[tokio::test]
+async fn a_new_record_with_an_old_guid_deletes_its_link() {
+    let b = Bench::new().await;
+    accept(b.app(), S, TOKEN_002, "link-g2", &feed_data(G2, "R")).await;
+    assert!(guid_supersession(&b.db, G1).is_some(), "G1 links to G2");
+    let m = "https://mirror.example/r.xml";
+    accept(b.app(), m, TOKEN_002, "link-g1-at-m", &feed_data(G1, "M")).await;
+    assert_eq!(stored_feed(&b.db, G1).expect("M has G1").feed_url, m);
+    assert!(guid_supersession(&b.db, G1).is_none(), "no link from G1");
+    let (code, _) = get_feed(b.app(), G1).await;
+    assert_eq!(code, http::StatusCode::OK);
+    let replica_db = replica_of(&b.db);
+    assert_replica_rows_match(&b.db, &replica_db);
+}
+
+/// ADR 0106 §3: a live feed with no such track gives the usual track `404`,
+/// with no `superseded_by`.
+#[tokio::test]
+async fn the_track_route_of_a_live_feed_gives_no_superseded_by() {
+    let b = Bench::new().await;
+    {
+        let conn = b.db.lock().expect("lock database");
+        conn.execute(
+            "INSERT INTO feed_guid_supersessions (old_guid, new_guid, source_url, superseded_at)              VALUES (?1, ?2, ?3, 1)",
+            rusqlite::params![G1, G2, S],
+        )
+        .expect("insert link");
+    }
+    let (code, body) = send(
+        b.app(),
+        "GET",
+        &format!("/v1/feeds/{G1}/tracks/no-such-track"),
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(code, http::StatusCode::NOT_FOUND);
+    assert!(body.get("superseded_by").is_none(), "{body:?}");
+}
+
+/// ADR 0106 §3: each link gives the GUID that the record holds now, also
+/// after two changes.
+#[tokio::test]
+async fn each_link_gives_the_guid_that_the_record_holds_now() {
+    let b = Bench::new().await;
+    accept(b.app(), S, TOKEN_002, "chain-g2", &feed_data(G2, "R")).await;
+    accept(b.app(), S, TOKEN_002, "chain-g3", &feed_data(G3, "R")).await;
+    for old in [G1, G2] {
+        let (code, body) = get_feed(b.app(), old).await;
+        assert_eq!(code, http::StatusCode::NOT_FOUND);
+        assert_eq!(body["superseded_by"].as_str(), Some(G3), "{old}: {body:?}");
+    }
+    let replica_db = replica_of(&b.db);
+    assert_replica_rows_match(&b.db, &replica_db);
 }
 
 // ── ADR 0106 §6, §7 and §8: task 002 ───────────────────────────────────────

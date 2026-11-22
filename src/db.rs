@@ -1647,6 +1647,8 @@ pub fn upsert_feed(conn: &Connection, feed: &Feed) -> Result<(), DbError> {
             feed_host_of(&feed.feed_url),
         ],
     )?;
+    // A record now holds this GUID, so no link goes from it (ADR 0106 §3).
+    delete_guid_supersession_of_live_feed(conn, &feed.feed_guid)?;
     Ok(())
 }
 
@@ -3997,6 +3999,11 @@ fn source_platform_claims_changed(
 /// On first ingest (feed not yet in DB), all events are emitted. On
 /// re-ingest, only entities whose fields actually differ produce events.
 ///
+/// For a GUID change (`guid_change` is true), no feed has the new GUID yet,
+/// so the function emits all events. It also emits the replace event of each
+/// empty set, so a community node deletes the rows that the body removed
+/// (ADR 0106 §2 step 4 and acceptance 6).
+///
 /// # Errors
 ///
 /// Returns [`DbError`] if any SQL query or JSON serialisation fails.
@@ -4021,6 +4028,7 @@ pub fn build_diff_events(
     tracks: &[TrackIngestBundle],
     now: i64,
     warnings: &[String],
+    guid_change: bool,
 ) -> Result<Vec<EventRow>, DbError> {
     // Use feed existence as the primary gate: if the feed is not yet in the
     // DB, this is a first ingest and all events must be emitted.
@@ -4044,6 +4052,7 @@ pub fn build_diff_events(
                 tracks,
                 now,
                 warnings,
+                guid_change,
             )
         },
         |ef| {
@@ -4071,6 +4080,10 @@ pub fn build_diff_events(
 }
 
 /// Emits all events unconditionally (first ingest of a feed).
+///
+/// When `emit_empty` is true, the function also emits the replace event of
+/// each empty set. A GUID change needs this, because the community node
+/// holds the rows of the record under the old GUID (ADR 0106 §2).
 #[expect(
     clippy::too_many_arguments,
     reason = "mirrors build_diff_events params"
@@ -4091,16 +4104,17 @@ fn build_all_events(
     tracks: &[TrackIngestBundle],
     now: i64,
     warnings: &[String],
+    emit_empty: bool,
 ) -> Result<Vec<EventRow>, DbError> {
     let mut event_rows: Vec<EventRow> = Vec::new();
     let warn_vec: Vec<String> = warnings.to_vec();
 
     event_rows.push(build_feed_upserted_event(feed, now, &warn_vec)?);
 
-    if !feed_routes.is_empty() {
+    if emit_empty || !feed_routes.is_empty() {
         event_rows.push(build_feed_routes_event(feed, feed_routes, now, &warn_vec)?);
     }
-    if !feed_list_values.is_empty() {
+    if emit_empty || !feed_list_values.is_empty() {
         event_rows.push(build_feed_list_value_event(
             feed,
             feed_list_values,
@@ -4108,7 +4122,7 @@ fn build_all_events(
             &warn_vec,
         )?);
     }
-    if !remote_items.is_empty() {
+    if emit_empty || !remote_items.is_empty() {
         event_rows.push(build_feed_remote_items_event(
             feed,
             remote_items,
@@ -4116,7 +4130,7 @@ fn build_all_events(
             &warn_vec,
         )?);
     }
-    if !source_contributor_claims.is_empty() {
+    if emit_empty || !source_contributor_claims.is_empty() {
         event_rows.push(build_source_contributor_claims_event(
             feed,
             source_contributor_claims,
@@ -4124,7 +4138,7 @@ fn build_all_events(
             &warn_vec,
         )?);
     }
-    if !source_entity_ids.is_empty() {
+    if emit_empty || !source_entity_ids.is_empty() {
         event_rows.push(build_source_entity_ids_event(
             feed,
             source_entity_ids,
@@ -4132,7 +4146,7 @@ fn build_all_events(
             &warn_vec,
         )?);
     }
-    if !source_entity_links.is_empty() {
+    if emit_empty || !source_entity_links.is_empty() {
         event_rows.push(build_source_entity_links_event(
             feed,
             source_entity_links,
@@ -4140,7 +4154,7 @@ fn build_all_events(
             &warn_vec,
         )?);
     }
-    if !source_release_claims.is_empty() {
+    if emit_empty || !source_release_claims.is_empty() {
         event_rows.push(build_source_release_claims_event(
             feed,
             source_release_claims,
@@ -4148,7 +4162,7 @@ fn build_all_events(
             &warn_vec,
         )?);
     }
-    if !source_item_enclosures.is_empty() {
+    if emit_empty || !source_item_enclosures.is_empty() {
         event_rows.push(build_source_item_enclosures_event(
             feed,
             source_item_enclosures,
@@ -4156,7 +4170,7 @@ fn build_all_events(
             &warn_vec,
         )?);
     }
-    if !source_item_transcripts.is_empty() {
+    if emit_empty || !source_item_transcripts.is_empty() {
         event_rows.push(build_source_item_transcripts_event(
             feed,
             source_item_transcripts,
@@ -4164,7 +4178,7 @@ fn build_all_events(
             &warn_vec,
         )?);
     }
-    if !source_platform_claims.is_empty() {
+    if emit_empty || !source_platform_claims.is_empty() {
         event_rows.push(build_source_platform_claims_event(
             feed,
             source_platform_claims,
@@ -4173,7 +4187,7 @@ fn build_all_events(
         )?);
     }
     let sorted_live_events = dedupe_and_sort_live_events(live_events);
-    if !sorted_live_events.is_empty() {
+    if emit_empty || !sorted_live_events.is_empty() {
         event_rows.push(build_live_events_event(
             feed,
             &sorted_live_events,
@@ -4187,7 +4201,7 @@ fn build_all_events(
             track, routes, vts, now, &warn_vec,
         )?);
 
-        if !track_remote_items.is_empty() {
+        if emit_empty || !track_remote_items.is_empty() {
             event_rows.push(build_track_remote_items_event(
                 track,
                 track_remote_items,
@@ -7140,6 +7154,9 @@ pub fn ingest_transaction(
         ],
     )?;
 
+    // 3a1. A record now holds this GUID, so no link goes from it.
+    delete_guid_supersession_of_live_feed(&tx, &feed.feed_guid)?;
+
     // 3a2. ADR 0067 section 2: an ingest that writes a body for the record
     // clears its gone-answer count. The row is local to the primary and
     // makes no event, so this delete need not fan out.
@@ -8126,7 +8143,9 @@ pub fn insert_guid_supersession(
 ///
 /// The link from `old_guid` to `new_guid` replaces each earlier link from
 /// `old_guid`. A revert deletes the link from `new_guid`, so no link goes
-/// from a GUID to the GUID that the record holds.
+/// from a GUID to the GUID that the record holds. Each earlier link to
+/// `old_guid` changes to `new_guid`, so each link gives the GUID that the
+/// record holds now.
 ///
 /// # Errors
 ///
@@ -8143,11 +8162,36 @@ pub(crate) fn write_guid_supersession(
         params![new_guid],
     )?;
     conn.execute(
+        "UPDATE feed_guid_supersessions SET new_guid = ?2 WHERE new_guid = ?1",
+        params![old_guid, new_guid],
+    )?;
+    conn.execute(
         "INSERT INTO feed_guid_supersessions \
          (old_guid, new_guid, source_url, superseded_at) VALUES (?1, ?2, ?3, ?4) \
          ON CONFLICT(old_guid) DO UPDATE SET new_guid = excluded.new_guid, \
          source_url = excluded.source_url, superseded_at = excluded.superseded_at",
         params![old_guid, new_guid, source_url, superseded_at],
+    )?;
+    Ok(())
+}
+
+/// Deletes the link from `feed_guid`, because a record holds that GUID.
+///
+/// A live record has priority over a link (ADR 0106 §3 gives the link only
+/// for an old GUID that no record holds). Each write of a feed row calls
+/// this function. The primary and each community node thus delete the same
+/// link.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the delete fails.
+fn delete_guid_supersession_of_live_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM feed_guid_supersessions WHERE old_guid = ?1",
+        params![feed_guid],
     )?;
     Ok(())
 }
