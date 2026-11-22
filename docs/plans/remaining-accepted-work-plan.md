@@ -14,7 +14,7 @@ are complete.
 
 | # | Item | Owner | Kind | Repositories | State |
 |---|---|---|---|---|---|
-| 8 | The four pending GUID changes of Elijah Lied | ADR 0052 §4 | Decided: approve each. The operator runs the commands | None | Below |
+| 8 | The four pending GUID changes of Elijah Lied | ADR 0052 §4 | Waits for ADR 0106 | None | Below |
 | 9 | A station that runs 24 hours a day on a feed with `medium` `podcast` | None yet | Research, then a decision | Node | Below |
 | 10 | A read at once after a `live` or `liveEnd` podping can get an old copy of the feed | ADR 0062 §4 | Measure, then a decision | Crawler | Below |
 
@@ -64,6 +64,11 @@ new GUID from the source URL. The item closes when `GET /v1/feeds/{old_guid}`
 answers `404` with `superseded_by` for each of the four.
 
 The two other pending rows are not in this choice. They stay pending.
+
+On 2026-11-22 the operator stopped the approvals until a decision on
+[ADR 0106](../adr/0106-a-feed-changes-its-guid-in-place.md). That ADR is
+Proposed. It can replace the approvals with a change in place at the next
+submission.
 
 ## Item 9: Stations On Podcast Feeds
 

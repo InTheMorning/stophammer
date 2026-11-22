@@ -37,6 +37,8 @@ Each line gives the owner, the condition and the next action.
 - ADR 0105: the first candidate runs the new jobs and the two open checks.
 - [ADR 0103](docs/adr/0103-a-marked-publisher-feed-is-a-person.md) is
   Proposed. No code is written.
+- [ADR 0106](docs/adr/0106-a-feed-changes-its-guid-in-place.md) is
+  Proposed. No code is written. The operator selects an option for §1 to §4.
 - [ADR 0055](docs/adr/0055-the-primary-fetches-what-it-signs.md) stays
   Proposed until a crawler or a nominator runs outside the host of the
   primary, or a leak of `CRAWL_TOKEN` is suspected.
@@ -52,7 +54,8 @@ Each line gives the owner, the condition and the next action.
   [The guide](docs/publisher-links-guide.md) tells a feed author how to write
   the links.
 - [The remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md)
-  gives the four approved GUID changes of ADR 0052 and two research items.
+  gives the four Elijah Lied GUID changes, which wait for ADR 0106, and two
+  research items.
 
 ### Operating Facts
 
