@@ -23,9 +23,6 @@ const ADMIN_TOKEN: &str = "adr0079-admin-token";
 const GONE_HOST: &str = "adr0079-gone.example.com";
 const ONE_DAY_SECS: i64 = 24 * 60 * 60;
 
-/// The `UUIDv5` namespace of `guid_origin_matches` (ADR 0052 section 4).
-const GUID_ORIGIN_NAMESPACE: uuid::Uuid = uuid::uuid!("ead4c236-bf58-58c6-a2c6-a6b28d128cb6");
-
 /// The three retire paths of ADR 0079 section 1.
 #[derive(Clone, Copy, Debug)]
 enum Retire {
@@ -338,44 +335,6 @@ async fn a_retire_with_a_block_writes_no_hold() {
 }
 
 // Check 2: a retire by a GUID change writes no hold.
-#[tokio::test]
-async fn a_guid_change_retire_writes_no_hold() {
-    let db = common::test_db_arc();
-    let app = stophammer::api::build_router(state(&db));
-    let url = "https://adr0079-guid-change.example.com/feed.xml";
-    let old_guid = "11111111-1111-1111-1111-111111111179";
-    let without_scheme = url.split_once("://").map_or(url, |(_, rest)| rest);
-    let new_guid =
-        uuid::Uuid::new_v5(&GUID_ORIGIN_NAMESPACE, without_scheme.as_bytes()).to_string();
-
-    ingest(
-        app.clone(),
-        &payload(url, url, "hash-old", &feed_data(old_guid, false)),
-    )
-    .await;
-    let body = ingest(
-        app,
-        &payload(url, url, "hash-new", &feed_data(&new_guid, false)),
-    )
-    .await;
-    assert_eq!(
-        body["accepted"], true,
-        "the UUIDv5 change must pass: {body:?}"
-    );
-    assert_eq!(
-        feeds_rows(&db, old_guid),
-        0,
-        "the old record must be retired"
-    );
-    assert_eq!(feeds_rows(&db, &new_guid), 1, "the new record must exist");
-    assert_eq!(
-        all_hold_rows(&db),
-        0,
-        "ADR 0079 §1: a GUID change retire writes no hold"
-    );
-}
-
-// Check 3: the same GUID from a different URL gets `retired_source_conflict`.
 #[tokio::test]
 async fn a_different_url_gets_retired_source_conflict_and_writes_nothing() {
     for how in ALL_RETIRES {

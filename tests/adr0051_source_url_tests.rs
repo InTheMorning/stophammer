@@ -206,25 +206,6 @@ async fn ingest_response(app: axum::Router, payload: &serde_json::Value) -> serd
     body_json(resp).await
 }
 
-async fn ingest_status_and_body(
-    app: axum::Router,
-    payload: &serde_json::Value,
-) -> (http::StatusCode, serde_json::Value) {
-    let resp = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/ingest/feed")
-                .header("Content-Type", "application/json")
-                .body(Body::from(serde_json::to_vec(payload).expect("serialize")))
-                .expect("build request"),
-        )
-        .await
-        .expect("send request");
-    let status = resp.status();
-    (status, body_json(resp).await)
-}
-
 async fn ingest(app: axum::Router, payload: &serde_json::Value) {
     let body = ingest_response(app, payload).await;
     assert_eq!(
@@ -437,82 +418,6 @@ async fn redirect_from_the_source_url_applies_content_and_keeps_the_stored_feed_
     );
 }
 
-/// ADR 0051 section 2, GUID change case: a held URL that starts to declare a
-/// new GUID answers `guid_change_pending`, not an HTTP 500, and writes
-/// nothing (the Doerfelverse defect this ADR closes).
-#[tokio::test]
-async fn a_new_guid_at_a_held_url_answers_guid_change_pending() {
-    let crawl_token = "adr0051-guidchange-token";
-    let db = common::test_db_arc();
-    let state = test_app_state(Arc::clone(&db), crawl_token);
-    let held_guid = "adr0051-guidchange-held";
-    let new_guid = "adr0051-guidchange-new";
-    let url_a = "https://example.com/adr0051-guidchange/a.xml";
-
-    let feed_data_1 = synthetic_feed_data(held_guid, "Held Feed");
-    let payload_1 = ingest_payload(
-        url_a,
-        url_a,
-        crawl_token,
-        "adr0051-guidchange-hash-1",
-        &feed_data_1,
-    );
-    ingest(
-        stophammer::api::build_router(Arc::clone(&state)),
-        &payload_1,
-    )
-    .await;
-
-    let feed_data_2 = synthetic_feed_data(new_guid, "Changed Feed");
-    let payload_2 = ingest_payload(
-        url_a,
-        url_a,
-        crawl_token,
-        "adr0051-guidchange-hash-2",
-        &feed_data_2,
-    );
-    let (status_2, resp_2) = ingest_status_and_body(
-        stophammer::api::build_router(Arc::clone(&state)),
-        &payload_2,
-    )
-    .await;
-
-    assert_eq!(
-        status_2, 200,
-        "a guid change must not answer HTTP 500: {resp_2:?}"
-    );
-    assert_eq!(resp_2["accepted"], false, "{resp_2:?}");
-    assert_eq!(resp_2["reason"], "guid_change_pending", "{resp_2:?}");
-
-    let conn = db.lock().expect("lock db");
-    assert!(
-        stophammer::db::get_feed(&conn, new_guid)
-            .expect("query feed")
-            .is_none(),
-        "a guid_change_pending submission must not create a feeds row for the new guid"
-    );
-    let held_feed = stophammer::db::get_feed(&conn, held_guid)
-        .expect("query feed")
-        .expect("the held feed must still exist");
-    assert_eq!(
-        held_feed.title, "Held Feed",
-        "the held record must not change"
-    );
-    assert!(
-        stophammer::db::get_tracks_for_feed(&conn, new_guid)
-            .expect("query tracks")
-            .is_empty()
-    );
-    assert!(
-        stophammer::db::get_feed_payment_routes_for_feed(&conn, new_guid)
-            .expect("query routes")
-            .is_empty()
-    );
-}
-
-/// ADR 0051 section 2, `RecordConflict` case: a submission whose URL is held
-/// by one record and whose GUID is held by a different record writes
-/// nothing, on either side, and adds no observation.
 #[tokio::test]
 async fn a_submission_that_touches_two_held_records_answers_record_conflict() {
     let crawl_token = "adr0051-recordconflict-token";
@@ -660,51 +565,7 @@ async fn a_no_change_submission_that_declares_a_different_held_guid_answers_reco
     );
 }
 
-/// ADR 0051 Guards: a `guid_change_pending` rejection writes no new
-/// feed row.
-#[tokio::test]
-async fn feed_count_is_unchanged_by_guid_change_pending() {
-    let crawl_token = "adr0051-artistcredit-token";
-    let db = common::test_db_arc();
-    let state = test_app_state(Arc::clone(&db), crawl_token);
-
-    let held_guid = "adr0051-artistcredit-guidchange-held";
-    let new_guid = "adr0051-artistcredit-guidchange-new";
-    let url_gc = "https://example.com/adr0051-artistcredit/guidchange.xml";
-    ingest(
-        stophammer::api::build_router(Arc::clone(&state)),
-        &ingest_payload(
-            url_gc,
-            url_gc,
-            crawl_token,
-            "adr0051-artistcredit-hash-1",
-            &synthetic_feed_data(held_guid, "Held"),
-        ),
-    )
-    .await;
-
-    let feeds_before = feed_count(&db);
-    let resp = ingest_response(
-        stophammer::api::build_router(Arc::clone(&state)),
-        &ingest_payload(
-            url_gc,
-            url_gc,
-            crawl_token,
-            "adr0051-artistcredit-hash-2",
-            &synthetic_feed_data(new_guid, "New"),
-        ),
-    )
-    .await;
-    assert_eq!(resp["reason"], "guid_change_pending", "{resp:?}");
-    assert_eq!(
-        feed_count(&db),
-        feeds_before,
-        "a guid_change_pending rejection must not add a feed row"
-    );
-}
-
-/// ADR 0051 Guards: a `record_conflict` rejection in the write phase writes
-/// no new feed row.
+/// ADR 0051 guard: a `record_conflict` response writes no new feed row.
 #[tokio::test]
 async fn feed_count_is_unchanged_by_record_conflict() {
     let crawl_token = "adr0051-artistcredit-token";

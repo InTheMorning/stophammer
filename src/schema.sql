@@ -487,20 +487,6 @@ CREATE TABLE IF NOT EXISTS feed_copy_overflow (
     count     INTEGER NOT NULL DEFAULT 0
 ) STRICT;
 
--- A pending GUID change at a source URL (ADR 0052 section 4). last_seen is
--- local to the primary ingest path and makes no event, so a community node
--- holds it as null.
-CREATE TABLE IF NOT EXISTS feed_guid_changes (
-    source_url      TEXT PRIMARY KEY,
-    old_guid        TEXT NOT NULL,
-    new_guid        TEXT NOT NULL,
-    first_seen      INTEGER NOT NULL,
-    last_seen       INTEGER,
-    decision        TEXT CHECK (decision IN ('approve','reject')),
-    decision_reason TEXT,
-    decided_at      INTEGER
-) STRICT;
-
 -- The link from a GUID a transition retired to the GUID that replaced it
 -- (ADR 0052 section 5). The link is for navigation only.
 CREATE TABLE IF NOT EXISTS feed_guid_supersessions (

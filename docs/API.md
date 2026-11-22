@@ -393,59 +393,51 @@ section 2).
 | `source_gone` | A second accepted report, 24 hours or more after the first. The record is retired | Stop crawling this URL |
 | `source_gone_ignored` | The node did not accept the report. The URL is not a stored source URL. Or a redirect carried it. Or the report is a `404` from a host that is not listed | Nothing to do |
 
-**Four reasons to reject a submission (ADR 0051 section 2 and ADR 0079 section 2):**
+**Submission reasons for source URLs (ADR 0051 section 2 and ADR 0106):**
 
-The node checks each submission against the source URL of its record. The
-source URL is the stored `feed_url`. Only content from the source URL can
-change a record.
+The node checks each submission against the source URL of its record. Only
+content from that URL can change the record.
 
 | Value | Meaning | The crawler should |
 |-------|---------|---------------------|
-| `source_conflict` | The body came from a URL that is not the source URL of the held GUID | Not retry this URL. It can fetch the source URL |
-| `record_conflict` | The submission names a GUID held by one record, from a URL held by a different record | Not retry. An operator must select the next step |
-| `guid_change_pending` | A held source URL declares a new GUID. See below | Not retry. ADR 0052 owns the next step |
-| `retired_source_conflict` | The GUID has an active hold for its last source URL (ADR 0079 section 2) | Not retry this URL. It can fetch the held source URL |
+| `source_conflict` | The body came from a URL that is not the source URL of the held GUID | Fetch the source URL |
+| `record_conflict` | The GUID belongs to a different record at this URL | Stop retrying. An operator must select the next step |
+| `retired_source_conflict` | The GUID has an active hold for its last source URL (ADR 0079 section 2) | Fetch the held source URL |
 
-`record_conflict` writes no row to the database. `source_conflict` is
-different: the node records the submitted URL as an observation of the GUID
-(ADR 0049 section 1), and it writes a copy row (ADR 0058). The observation and
-the copy row do not change the record. `guid_change_pending` writes a pending
-row. See the next section.
+`record_conflict` writes no row. `source_conflict` records the submitted URL
+as an observation (ADR 0049 section 1) and writes a copy row (ADR 0058). These
+writes do not change the record.
 
-**A source URL can change its declared GUID (ADR 0052 sections 4 and 5):**
+**A source URL can change its declared GUID (ADR 0106):**
 
-A held source URL that declares a GUID other than its record's own GUID does
-not change the record. The node records the change as pending, and the
-change is public:
+A submission from the record's source URL changes a free new GUID in place.
+The record keeps its row, source URL, tracks and payment routes. The node
+applies the change in the ingest transaction and signs `FeedGuidChanged`
+before the events for the body.
 
-- `GET /v1/feeds/{guid}` reports it in `pending_guid_change`.
-- `GET /v1/guid-changes` lists it.
-
-The node applies the change only when the new GUID is the `UUIDv5` of the
-source URL (ADR 0058 section 1b). It signs `FeedRetired` for the record,
-with reason `guid_superseded` and no block, then signs `FeedGuidSuperseded`,
-then admits the body as a new record. The response carries
-`accepted: true` and this warning:
+The response carries `accepted: true` and this warning:
 
 ```text
-GUID changed from <old GUID> to <new GUID> (ADR 0052 UUIDv5)
+GUID changed from <old GUID> to <new GUID> (ADR 0106)
 ```
 
-If the new GUID is not that `UUIDv5`, the change needs the operator:
-`POST /v1/feeds/{guid}/guid-change` (section 10). Until the operator
-decides, each submission of the same new GUID answers `guid_change_pending`
-again, and signs no new event. `approve` runs the same change at the next
-submission of the same new GUID, with the warning `GUID changed from
-<old GUID> to <new GUID> (ADR 0052 approved)`. A rejected new GUID answers
-`guid_change_rejected`. A different new GUID opens a new pending row.
+A new GUID held by another record gives `record_conflict`. A GUID change
+applies only to the record whose source URL is `source_url`. If a different
+record holds `canonical_url`, the answer is `record_conflict`. An active
+retired source hold on the new GUID gives `retired_source_conflict`, unless
+the hold names the source URL. A GUID block keeps its existing answer. A body
+that blocks this index retires the record under its stored GUID. A body that
+fails another verifier does not change the GUID.
 
-| Value | Meaning | The crawler should |
-|-------|---------|---------------------|
-| `guid_change_rejected` | The operator rejected this same new GUID at this source URL | Not retry. ADR 0052 owns the next step |
+A permanent redirect (`301` or `308`) from the source URL to a URL that
+declares a free new GUID changes the GUID and moves the record to the new URL
+in one transaction (ADR 0106 section 6). A declared `itunes:new-feed-url` or
+self link with a new GUID at the new URL gives a new record (ADR 0106 section
+7).
 
-A submission of the record's own GUID from a source URL with a pending row
-deletes the row: the source corrected itself back. The record keeps its
-content and its track identities.
+The old GUID gives `404` with `superseded_by` at the feed route and the track
+route. The field gives the new feed GUID. `GET /v1/guid-changes` stays empty,
+and `pending_guid_change` stays null for compatibility.
 
 **A source URL can move a record (ADR 0052 sections 1 and 2):**
 
@@ -1033,7 +1025,7 @@ Returns a single feed by its `podcast:guid`.
 | Code | Meaning |
 |------|---------|
 | 200  | Success |
-| 404  | Feed not found. Carries `superseded_by`, the GUID that replaced this one, when a GUID change retired it (ADR 0052 section 5) |
+| 404  | Feed not found. Carries `superseded_by`, the GUID that replaced this one, when a GUID change changed it in place (ADR 0106 section 3) |
 
 `raw_medium` is the verbatim channel-level `podcast:medium` value from RSS.
 `remote_items` is the stored source-truth snapshot of feed-level
@@ -1281,12 +1273,8 @@ null. ADR 0071 sections 1a and 3.
 `GET /v1/feeds/{guid}/copies` lists each copy, open or not. ADR 0058 owns
 `copy_count` and the two copy routes below.
 
-`pending_guid_change` is null, or gives `new_guid`, `first_seen`, `last_seen`
-and `decision` for the GUID the feed's own source URL declares.
-`last_seen` is local to the primary. A community node answers null.
-`decision` is null until the operator decides, then `approve` or `reject`.
-ADR 0052 section 4 owns this field, and section 2 of this document owns
-`POST /ingest/feed`'s part in it.
+`pending_guid_change` is always null (ADR 0106 section 4). The field stays for
+compatibility under ADR 0044 rule 4.
 
 `return_wait_until` is null, or the end of the active return wait in Unix
 seconds. Before this time, the node refuses a move of the record back to a URL
@@ -1497,7 +1485,7 @@ The node does not fetch the URL. Read the feed at `href`.
   of a copy (ADR 0058), then a URL that gave the GUID at an earlier ingest
   (ADR 0049 section 1). A copy URL gives the indexed record, not the copy.
 - A match whose feed the node no longer holds does not give that feed. When a
-  GUID change retired it, the answer is `404` with `superseded_by`. Otherwise
+  GUID change changed it in place, the answer is `404` with `superseded_by` (ADR 0106 section 3). Otherwise
   the next match counts.
 - A community node gives the same answer, because the copies and the URL
   observations are signed events.
@@ -1526,7 +1514,7 @@ The node does not fetch the URL. Read the feed at `href`.
 |------|---------|
 | 200  | A feed that the node holds has the URL |
 | 400  | No `url`, or a value that is not a valid `http` or `https` URL of at most 2,048 bytes |
-| 404  | No feed has the URL: `{"error": "feed not found"}`. It carries `superseded_by` when the URL names a GUID that a GUID change retired (ADR 0052 section 5) |
+| 404  | No feed has the URL: `{"error": "feed not found"}`. It carries `superseded_by` when the URL names a GUID that changed in place (ADR 0106 section 3) |
 
 ---
 
@@ -1881,27 +1869,16 @@ null when the record has no open copy, and is listed only because its
 
 ### GET /v1/guid-changes
 
-Gives each pending GUID change with no `reject` decision. ADR 0052 section 4
-owns this route.
+Gives an empty list. The route stays for compatibility (ADR 0106 section 4).
 
 - **Authentication:** None
-- **Sequence:** newest first, by `first_seen`.
-- **Query parameters:** `cursor`, and `limit`, at most 100.
+- **Query parameters:** `cursor` and `limit`, at most 100.
 
 **Response (`200 OK`):**
 
 ```json
 {
-  "data": [
-    {
-      "source_url": "https://feeds.example.com/my-music-feed",
-      "old_guid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-      "new_guid": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-      "first_seen": 1710288000,
-      "last_seen": 1710300000,
-      "decision": null
-    }
-  ],
+  "data": [],
   "pagination": { "cursor": null, "has_more": false },
   "meta": { "api_version": "v1", "node_pubkey": "hex-pubkey" }
 }
@@ -1910,11 +1887,6 @@ owns this route.
 | Code | Meaning |
 |------|---------|
 | 200  | Success |
-
-`decision` is null until the operator decides, then `approve` or `reject`. A
-row with a `reject` decision drops out of this list.
-`GET /v1/feeds/{old_guid}`'s `pending_guid_change` continues to show it.
-`last_seen` is local to the primary. A community node answers null.
 
 ---
 
@@ -2012,7 +1984,7 @@ Canonical track lookup by parent `feed_guid` plus raw source `track_guid`.
 | Code | Meaning |
 |------|---------|
 | 200  | Success |
-| 404  | Track not found in the specified feed |
+| 404  | Track not found. A changed feed GUID also gives `superseded_by` (ADR 0106 section 3) |
 
 ---
 
@@ -2838,7 +2810,7 @@ source `track_guid`. Currently supports `enclosure_url` only.
 |------|---------|
 | 204  | Updated |
 | 403  | Missing or invalid admin token |
-| 404  | Track not found in the specified feed |
+| 404  | Track not found. A changed feed GUID also gives `superseded_by` (ADR 0106 section 3) |
 
 ---
 
@@ -3088,48 +3060,6 @@ no payment route.
 
 ---
 
-### POST /v1/feeds/{guid}/guid-change
-
-The operator decides a pending GUID change (ADR 0052 section 4). `{guid}` in
-the path is the GUID a pending row names as `old_guid`.
-
-- **Authentication:** Admin token only (`X-Admin-Token`)
-- **Available on:** Primary only
-
-**Request body:**
-
-```json
-{
-  "decision": "approve",
-  "reason": "confirmed with the publisher"
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `decision` | string | `approve` or `reject` |
-| `reason` | string | Why the operator picked this decision |
-
-The node does not keep the body of the submission that opened the row.
-`approve` sets the decision only. The next submission of the new GUID from
-the source URL then applies the change section 2 describes. `reject` holds
-while the source URL keeps declaring this same new GUID. A different new
-GUID from it opens a new pending row.
-
-**Response (`200 OK`):**
-
-```json
-{
-  "event_id": "uuid"
-}
-```
-
-| Code | Meaning |
-|------|---------|
-| 200  | Decision applied |
-| 400  | Empty `reason`, or `decision` is not `approve` or `reject` |
-| 403  | Missing or invalid admin token |
-| 404  | No pending GUID change names this GUID as `old_guid` |
 
 ---
 
@@ -3163,9 +3093,10 @@ The signature covers `event_id`, `event_type`, `payload_json`, `subject_guid`,
 | `feed_unblocked` | block_id | A blocked feed GUID or URL was unblocked |
 | `feed_copy_observed` | feed_guid | A new or changed summary of a feed copy at a URL that is not the source (ADR 0058) |
 | `feed_copy_resolved` | feed_guid | The operator resolved a feed copy with `keep_source` or `relocate` (ADR 0058) |
-| `feed_guid_change_observed` | old_guid | A pending GUID change is new or changed, or deleted because the source declared its earlier GUID again (ADR 0052 section 4) |
-| `feed_guid_change_decided` | old_guid | The operator approved or rejected a pending GUID change (ADR 0052 section 4) |
-| `feed_guid_superseded` | old_guid | A GUID change retired old_guid and linked it to new_guid (ADR 0052 section 5) |
+| `feed_guid_changed` | new_guid | A feed changed its GUID in place (ADR 0106 section 5) |
+| `feed_guid_change_observed` | old_guid | Historical pending-change event. The node applies no change (ADR 0106 section 5) |
+| `feed_guid_change_decided` | old_guid | Historical decision event. The node applies no change (ADR 0106 section 5) |
+| `feed_guid_superseded` | old_guid | Historical event for an earlier GUID change (ADR 0052 section 5) |
 
 ---
 
@@ -3175,7 +3106,7 @@ The signature covers `event_id`, `event_type`, `payload_json`, `subject_guid`,
 |--------|---------------|---------|
 | Crawl token | `crawl_token` in request body | `POST /ingest/feed` |
 | Sync token | `X-Sync-Token` header | `GET /sync/events`, `GET /sync/peers`, `POST /sync/register`, `POST /sync/reconcile` |
-| Admin token | `X-Admin-Token` header | `DELETE /v1/feeds/*`, `DELETE /v1/feeds/*/tracks/*`, `PATCH /v1/feeds/*`, `PATCH /v1/tracks/*`, `PATCH /v1/feeds/*/tracks/*`, `POST /v1/feeds/*/copies/resolve`, `POST /v1/feeds/*/guid-change`, `POST /v1/blocks`, `GET /v1/blocks`, `DELETE /v1/blocks/*` |
+| Admin token | `X-Admin-Token` header | `DELETE /v1/feeds/*`, `DELETE /v1/feeds/*/tracks/*`, `PATCH /v1/feeds/*`, `PATCH /v1/tracks/*`, `PATCH /v1/feeds/*/tracks/*`, `POST /v1/feeds/*/copies/resolve`, `POST /v1/blocks`, `GET /v1/blocks`, `DELETE /v1/blocks/*` |
 
 ADR 0056 took the public proof flow offline. Each write route in this table
 needs the admin token. No route takes a bearer token.

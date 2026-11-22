@@ -97,8 +97,12 @@ fn apply_single_event_inner(
         // `ArtistCreditCreated` event. Only an event signed before release
         // 0.3.0 carries either payload. The event still counts as applied
         // above, so the sync cursor moves past it; there is nothing left to
-        // write.
-        event::EventPayload::ArtistUpserted(_) | event::EventPayload::ArtistCreditCreated(_) => {}
+        // write. ADR 0106 §5: an event of a pending GUID change or of its
+        // decision is also history, and it writes no table.
+        event::EventPayload::ArtistUpserted(_)
+        | event::EventPayload::ArtistCreditCreated(_)
+        | event::EventPayload::FeedGuidChangeObserved(_)
+        | event::EventPayload::FeedGuidChangeDecided(_) => {}
         event::EventPayload::FeedUpserted(p) => {
             db::upsert_feed(conn, &p.feed)?;
             // Rebuild search index and quality scores for the feed and all its tracks.
@@ -246,31 +250,17 @@ fn apply_single_event_inner(
                 p.resolved_remote_items_digest.as_deref(),
             )?;
         }
-        event::EventPayload::FeedGuidChangeObserved(p) => {
-            // ADR 0052 section 4, task 007: `new_guid` equal to `old_guid` is
-            // the delete marker (the return case). Idempotent either way.
-            if p.new_guid == p.old_guid {
-                db::delete_guid_change(conn, &p.source_url)?;
-            } else {
-                db::upsert_guid_change(
+        event::EventPayload::FeedGuidChanged(p) => {
+            // ADR 0106 §2 and §3: the same change and link as the primary.
+            if db::change_feed_guid_sql(conn, &p.old_guid, &p.new_guid)? {
+                db::write_guid_supersession(
                     conn,
-                    &p.source_url,
                     &p.old_guid,
                     &p.new_guid,
-                    p.first_seen,
+                    &p.source_url,
+                    ev.created_at,
                 )?;
             }
-        }
-        event::EventPayload::FeedGuidChangeDecided(p) => {
-            // Idempotent: writing the decision of a missing row is a no-op
-            // (ADR 0052 section 4).
-            db::set_guid_change_decision(
-                conn,
-                &p.source_url,
-                &p.decision,
-                &p.reason,
-                p.decided_at,
-            )?;
         }
         event::EventPayload::FeedGuidSuperseded(p) => {
             // Idempotent (INSERT OR IGNORE). The transition's own

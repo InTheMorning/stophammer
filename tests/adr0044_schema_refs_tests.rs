@@ -228,6 +228,10 @@ fn each_example_is_unchanged() {
             if route == "get /v1/search" && status == "400" {
                 continue;
             }
+            // ADR 0106 §4 changes the compatibility route's example to an empty list.
+            if route == "get /v1/guid-changes" {
+                continue;
+            }
             let now = response
                 .get("content")
                 .and_then(|c| c.get("application/json"))

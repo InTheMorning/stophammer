@@ -161,6 +161,7 @@ fn ingest_and_count_track_events(
         track_tuples,
         event_rows,
         None,
+        None,
         signer,
     )
     .expect("ingest_transaction should succeed");

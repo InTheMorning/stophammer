@@ -1,15 +1,21 @@
 # ADR 0106: A Feed Changes Its GUID In Place
 
 ## Status
-Proposed on 2026-11-22. No code is written. Each question in "Decision" gives
-the options and a recommendation. The operator selects one option for each
-question.
+Accepted on 2026-11-22. The operator, through the orchestrator session,
+selected the recommended option of each question in "Decision" and kept
+`GET /v1/guid-changes` as an empty list. On the same day the operator also
+accepted §6, §7 and the order of §8. No release holds it.
+[Task 001](../tasks/adr-0106-task-001-guid-change-in-place.md) and
+[task 002](../tasks/adr-0106-task-002-redirect-and-classify.md) give the
+work.
 
 - Bar: difficult to change later. The change writes new signed events, and
   each community node applies them.
 - Supersedes: [ADR 0052](0052-a-source-moves-its-own-feed.md) §4, §5, the
   last two invariants and the guards for a GUID change. §1, §2, §3 and §6 of
   ADR 0052 stay.
+- Changes: ADR 0052 §1, the first condition for a permanent redirect only
+  (§6 below), and the ADR 0052 guard for a `301` to a different GUID.
 - Uses: ADR 0040 for track identity, ADR 0044 rule 4 for a `v1` field, ADR
   0051 for the source URL, ADR 0079 for a retired GUID.
 
@@ -64,6 +70,12 @@ On 2026-11-22 the main session read the code:
   in one transaction. `db::ingest_transaction` then admits the new record in a
   second transaction. ADR 0052 §5 asks for one transaction. An error between
   the two leaves the old record retired and no new record.
+- `classify_submission` in `src/db.rs` reads one row with
+  `feed_url IN (source_url, canonical_url) AND feed_guid <> ?`. When one
+  record holds the source URL and a different record holds the final URL of
+  a redirect, either row can be the answer. Under the hold of ADR 0052 §4
+  this wrote only a pending row. With an automatic change, it can change the
+  GUID of the wrong record.
 
 On 2026-11-22 the node held six pending rows. Four are Elijah Lied. The two
 others are:
@@ -147,6 +159,9 @@ columns that name a different feed.
 | D. `404` with no field, as Podcast Index | Same as Podcast Index | A client that stored the old GUID cannot find the record. `musicindex-studio` loses a path |
 
 **Recommendation: A.** The link is for navigation only, as in ADR 0052 §5.
+The same `404` body applies to `GET /v1/feeds/{old_guid}` and to
+`GET /v1/feeds/{old_guid}/tracks/{track_guid}`. `superseded_by` gives the new
+feed GUID. The `track_guid` does not change.
 `GET /v1/feeds/by-url` with the source URL gives the record under the new
 GUID.
 
@@ -188,7 +203,7 @@ others.
 |---|---|
 | Ingest reasons `guid_change_pending` and `guid_change_rejected` | Removed. A GUID change is accepted with the warning `GUID changed from <old> to <new> (ADR 0106)` |
 | `POST /v1/feeds/{guid}/guid-change` | Removed. It is an admin route, and no client uses it |
-| `GET /v1/guid-changes` | Stays, and always gives an empty list. The operator can select its removal. ADR 0044 rule 4 covers a field, not a route |
+| `GET /v1/guid-changes` | Stays until a `v2`, and always gives an empty list. A client outside the suite can read it, as for `pending_guid_change` |
 | `pending_guid_change` in `GET /v1/feeds/{guid}` | Stays, and is always `null`. ADR 0044 rule 4 makes a removal a breaking change |
 | `superseded_by` in a `404` | Stays (§3) |
 | `src/openapi.rs` and `docs/API.md` | Change with each line above |
@@ -220,9 +235,12 @@ the operator route:
   replica applies `FeedGuidChanged`, and still applies the three old events.
 - `tests/adr0078_retire_index_tests.rs` `guid_change_retire_deletes_each_index_row`:
   the search rows of the record change to the new key.
-- `stophammer-crawler/src/crawl.rs`
-  `is_uncached_node_answer_is_true_for_each_of_the_five_reasons`: the list
-  loses `guid_change_pending`.
+
+**The crawler.** `stophammer-crawler` is a separate repository. Its list of
+node answers that it does not cache names `guid_change_pending`
+(`is_uncached_node_answer` in `src/crawl.rs`). The node no longer sends that
+answer, so the entry has no effect. A change in that repository can remove
+it.
 
 **Tests that stay.**
 `tests/adr0079_retired_source_tests.rs` `a_guid_superseded_retire_gets_no_hold`
@@ -231,11 +249,84 @@ the operator route:
 tests of `tests/adr0051_classify_tests.rs`.
 
 **New tests.** A revert changes the GUID back. A new GUID that a different
-record holds gives `record_conflict`. The schema test of §2.
+record holds gives `record_conflict`. An error in the change leaves the
+record unchanged. The schema test of §2. One test for each case of §6 and §7,
+and one for two records at `S` and `F` (§6).
+
+**Tests deleted with the ADR 0052 guard of §6.** Each test that asserts that
+a `301` to a body with a different GUID moves nothing.
+
+### 6. A permanent redirect with a GUID change
+
+The source URL `S` of record `R` answers `301` or `308` to `F`, and the body
+at `F` declares a free new GUID `G2`. The node changes `R` to `G2` in place
+and moves `R` to `F`, in one transaction. Both come from the source URL: `S`
+gives the redirect, and §1 lets `S` change the GUID.
+
+This changes the first condition of ADR 0052 §1 for the permanent redirect
+trigger only. The condition becomes: the body at `F` declares the GUID of the
+record, or a free GUID (ADR 0106). The ADR 0052 guard "A `301` from the source
+URL to a URL that declares a different GUID moves nothing" no longer applies.
+
+These conditions stay:
+
+- The record that changes is always the record whose source URL is the
+  `source_url` of the submission. If `F` is the source URL of a different
+  record, the answer is `record_conflict`, and no record changes.
+- The rules of ADR 0083 for a return stay. During a wait of ADR 0083 §5, the
+  GUID change applies, and `R` keeps `S`.
+
+### 7. A declared new URL with a GUID change stays a new feed
+
+The body at `S` declares `itunes:new-feed-url` or a self link `F`, and the
+body at `F` declares a free new GUID `G2`. The body at `F` is a new feed under
+ADR 0051. The node admits a new record at `F`, and `R` does not change. ADR
+0052 §1 stays for these two triggers.
+
+A copied tag can name a different release. For example, album 2 is a copy of
+album 1 and keeps the self link of album 1. A move with a GUID change would
+then turn album 2 into album 1. A second record at `F` is the cost. When `S`
+answers `404` or `410`, ADR 0067 retires `R`.
+
+### 8. The order of the checks
+
+The node does these steps in this order for each submission. The first step
+that refuses gives the answer, and the submission changes nothing.
+
+1. The crawl token of ADR 0055 and ADR 0056.
+2. The block of ADR 0053 on the declared GUID, on `source_url` or on
+   `canonical_url`. The answer is `blocked`.
+3. `classify_submission`. The record that changes is only the record whose
+   `feed_url` is `source_url`. Each other record at `source_url` or at
+   `canonical_url` gives `record_conflict`.
+4. For a GUID change, the new GUID is new to the index, so the guards of a
+   new feed apply to it. An active hold of ADR 0079 on the new GUID refuses
+   each URL that is not the held URL. The answer is `retired_source_conflict`.
+   A new feed and a GUID change use one function for this check.
+5. For a GUID change, a body that blocks this index (ADR 0057) retires the
+   record under its stored GUID, as for an update. The GUID does not change
+   first.
+6. The verifier chain. A failure changes nothing.
+7. The move decision of ADR 0052 §2 and ADR 0083 §5 and §6, for an update and
+   for a GUID change (§6).
+8. One ingest transaction: the GUID change, then the move under the new GUID,
+   then the body, then `FeedGuidChanged` and the move events.
 
 ## Alternatives Considered
 
-The tables of each question give the options. One more:
+The tables of each question give the options. More options:
+
+### A redirect with a GUID change keeps the source URL
+
+The record changes its GUID and keeps `S`. Each later fetch follows the
+redirect again. The redirect comes from the source URL, as the GUID does, so
+the node has the same evidence for the move. Rejected.
+
+### A move with a GUID change for `itunes:new-feed-url` only
+
+This tag is an explicit statement of a move, so a wrong value is less
+frequent than for a self link. No counted case exists, and a copied tag has
+the same risk as a copied self link. Rejected.
 
 ### A pending row that applies by itself after a time
 
@@ -262,6 +353,8 @@ These replace the last two invariants of ADR 0052:
 
 - A GUID change applies only from a body at the source URL, and only to a GUID
   that no record, hold or block holds.
+- A GUID change applies only to the record whose source URL is the
+  `source_url` of the submission.
 - A GUID change keeps the record row and each `track_guid`.
 - `superseded_by` never selects a payment route.
 
@@ -273,15 +366,25 @@ Mechanical. Each criterion is a test in the task file:
    The record count does not change.
 2. After the change, no column of the schema list holds the old GUID for this
    record.
-3. `GET /v1/feeds/{old_guid}` gives `404` with `superseded_by`.
-4. A revert changes the GUID back, and deletes the link to itself.
+3. `GET /v1/feeds/{old_guid}` and `GET /v1/feeds/{old_guid}/tracks/{track_guid}`
+   give `404` with `superseded_by`.
+4. A revert changes the GUID back at the next submission, and leaves no link
+   from a GUID to itself.
 5. A new GUID held by a different record gives `record_conflict`.
 6. A replica that applies `FeedGuidChanged` has the same rows as the primary.
+7. An error in the change leaves the record unchanged.
+8. `S` answers `301` to `F`, and `F` declares a free `G2`: `R` has `G2` and
+   the source URL `F`.
+9. `R` holds `S`, `R2` holds `F`, `S` answers `301` to `F`, and `F` declares a
+   free `G2`: the answer is `record_conflict`, and neither record changes.
+10. `S` declares `itunes:new-feed-url` `F`, and `F` declares a free `G2`: a
+    new record holds `F` with `G2`, and `R` does not change.
+11. `R` at `S` declares `G2`, and an active ADR 0079 hold on `G2` names a
+    different URL: the answer is `retired_source_conflict`, and `R` keeps its
+    GUID.
+12. `R` at `S` declares `G2`, and an active ADR 0079 hold on `G2` names `S`:
+    `R` changes to `G2`, and the hold row is deleted.
+13. `R` at `S` declares `G2` and a block of this index (ADR 0057): `R` is
+    retired under its stored GUID, and no record has `G2`.
 
 Visual: none.
-
-## Open Questions
-
-- The operator selects one option for each of §1 to §4.
-- §5 keeps `GET /v1/guid-changes` with an empty list. The operator can select
-  its removal.

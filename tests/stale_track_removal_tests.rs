@@ -118,6 +118,7 @@ fn ingest_feed_with_tracks(
         tracks,
         event_rows,
         None,
+        None,
         signer,
     )
     .expect("ingest_transaction should succeed")

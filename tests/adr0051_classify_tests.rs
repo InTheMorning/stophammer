@@ -215,3 +215,34 @@ fn classify_submission_writes_no_row() {
         "classify_submission must not change feed B's row"
     );
 }
+
+// ADR 0106 §8 step 3: only the record at `source_url` changes its GUID.
+
+#[test]
+fn a_free_guid_with_records_at_both_urls_is_record_conflict() {
+    let conn = common::test_db();
+    seed_two_feeds(&conn);
+    let result = db::classify_submission(&conn, GN, UA, UB).expect("classify");
+    assert_eq!(result, SubmissionClass::RecordConflict);
+}
+
+#[test]
+fn a_free_guid_with_a_record_only_at_the_canonical_url_is_record_conflict() {
+    let conn = common::test_db();
+    seed_two_feeds(&conn);
+    let result = db::classify_submission(&conn, GN, UX, UB).expect("classify");
+    assert_eq!(result, SubmissionClass::RecordConflict);
+}
+
+#[test]
+fn a_free_guid_with_a_record_only_at_the_source_url_is_guid_change() {
+    let conn = common::test_db();
+    seed_two_feeds(&conn);
+    let result = db::classify_submission(&conn, GN, UA, UX).expect("classify");
+    assert_eq!(
+        result,
+        SubmissionClass::GuidChange {
+            held_guid: GA.to_string()
+        }
+    );
+}

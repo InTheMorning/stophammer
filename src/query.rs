@@ -820,9 +820,7 @@ struct FeedResponse {
     /// `GET /v1/feeds/by-name` with `include=named_feeds`. ADR 0071 §3.
     #[serde(skip_serializing_if = "Option::is_none")]
     named_feeds: Option<Vec<NamedFeedEntry>>,
-    /// Null, or the pending GUID change the source URL of this feed
-    /// declares (ADR 0052 section 4). `decision` is null until the operator
-    /// decides, then `approve` or `reject`.
+    /// This field is always null for compatibility (ADR 0106 §4).
     pending_guid_change: Option<PendingGuidChangeResponse>,
     /// The end of the active return wait, in Unix seconds, or null when no
     /// wait is active. Before this time, a move of the record back to a URL
@@ -945,8 +943,7 @@ struct LiveItemResponse {
     link_scheme_added: bool,
 }
 
-/// The pending GUID change of `FeedResponse.pending_guid_change` (ADR 0052
-/// section 4, task 007).
+/// The retained `pending_guid_change` field is always null (ADR 0106 §4).
 #[derive(Debug, Serialize, ToSchema)]
 struct PendingGuidChangeResponse {
     new_guid: String,
@@ -956,8 +953,7 @@ struct PendingGuidChangeResponse {
     decision: Option<String>,
 }
 
-/// One row of `GET /v1/guid-changes` (ADR 0052 section 4, task 007): a
-/// pending GUID change with no `reject` decision.
+/// One row shape retained by `GET /v1/guid-changes` (ADR 0106 §4).
 #[derive(Debug, Clone, Serialize, ToSchema)]
 struct GuidChangeResponse {
     source_url: String,
@@ -969,8 +965,7 @@ struct GuidChangeResponse {
     decision: Option<String>,
 }
 
-/// Body of a `404` for `GET /v1/feeds/{guid}` naming a superseded GUID (ADR
-/// 0052 section 5, task 007).
+/// Body of a `404` for a GUID that changed in place (ADR 0106 §3).
 #[derive(Debug, Serialize, ToSchema)]
 struct FeedSupersededBody {
     error: String,
@@ -978,24 +973,11 @@ struct FeedSupersededBody {
     superseded_by: String,
 }
 
-fn pending_guid_change_response(row: db::GuidChangeRow) -> PendingGuidChangeResponse {
-    PendingGuidChangeResponse {
-        new_guid: row.new_guid,
-        first_seen: row.first_seen,
-        last_seen: row.last_seen,
-        decision: row.decision,
-    }
-}
-
-fn guid_change_response(row: db::GuidChangeRow) -> GuidChangeResponse {
-    GuidChangeResponse {
-        source_url: row.source_url,
-        old_guid: row.old_guid,
-        new_guid: row.new_guid,
-        first_seen: row.first_seen,
-        last_seen: row.last_seen,
-        decision: row.decision,
-    }
+fn superseded_by(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+) -> Result<Option<String>, api::ApiError> {
+    Ok(db::get_guid_supersession(conn, feed_guid)?.map(|row| row.new_guid))
 }
 
 /// The resolution of one `feed_copies` row (ADR 0058 Section 4). `current`
@@ -2215,12 +2197,9 @@ async fn handle_get_feed(
             .optional()?;
 
         let Some(row) = row_opt else {
-            // ADR 0052 section 5, task 007: a GUID a transition retired
-            // answers 404 with superseded_by, when the link still names one.
-            let outcome = match db::get_guid_supersession(&conn, &feed_guid)? {
-                Some(supersession) => FeedDetailOutcome::Superseded {
-                    superseded_by: supersession.new_guid,
-                },
+            // ADR 0106 §3: an old GUID answers 404 with its replacement.
+            let outcome = match superseded_by(&conn, &feed_guid)? {
+                Some(superseded_by) => FeedDetailOutcome::Superseded { superseded_by },
                 None => FeedDetailOutcome::NotFound,
             };
             return Ok::<_, api::ApiError>(outcome);
@@ -2648,8 +2627,7 @@ fn build_feed_response(
     let (publisher_feed_guid, publisher_feed_title) =
         PublisherFeedName::into_fields(resolve_publisher_feed(conn, &feed_guid)?);
     let (copy_count, _newest_open_copy_first_seen) = db::open_copy_summary(conn, &feed_guid)?;
-    let pending_guid_change =
-        db::get_pending_guid_change_for_feed(conn, &feed_guid)?.map(pending_guid_change_response);
+    let pending_guid_change = None;
     // ADR 0064 section 6: the feed read takes one clock reading, so
     // in_now_view and in_upcoming_view agree across every row.
     let now = db::unix_now();
@@ -3957,6 +3935,12 @@ enum EitherTrackResponse {
     Ambiguous(Vec<api::AmbiguousTrackGuidCandidate>),
 }
 
+enum TrackDetailOutcome {
+    Found(Box<TrackResponse>),
+    NotFound,
+    Superseded { superseded_by: String },
+}
+
 #[allow(
     clippy::too_many_lines,
     reason = "single paginated-detail flow with optional includes"
@@ -3967,21 +3951,24 @@ async fn handle_get_feed_track(
     Query(params): Query<ListQuery>,
 ) -> Result<Response, api::ApiError> {
     let state2 = Arc::clone(&state);
-    let result = tokio::task::spawn_blocking(move || {
+    let not_found_feed_guid = feed_guid.clone();
+    let not_found_track_guid = track_guid.clone();
+    let outcome = tokio::task::spawn_blocking(move || {
         let conn = state2.db.reader().map_err(|e| api::ApiError {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             message: format!("database reader pool error: {e}"),
             www_authenticate: None,
         })?;
 
-        let row = get_track_row_for_feed(&conn, &feed_guid, &track_guid)?.ok_or_else(|| {
-            api::ApiError {
-                status: StatusCode::NOT_FOUND,
-                message: format!("track {track_guid} not found in feed {feed_guid}"),
-                www_authenticate: None,
-            }
-        })?;
-        build_track_response(&conn, row, &params)
+        let Some(row) = get_track_row_for_feed(&conn, &feed_guid, &track_guid)? else {
+            return Ok::<_, api::ApiError>(match superseded_by(&conn, &feed_guid)? {
+                Some(superseded_by) => TrackDetailOutcome::Superseded { superseded_by },
+                None => TrackDetailOutcome::NotFound,
+            });
+        };
+        Ok(TrackDetailOutcome::Found(Box::new(build_track_response(
+            &conn, row, &params,
+        )?)))
     })
     .await
     .map_err(|e| api::ApiError {
@@ -3990,15 +3977,32 @@ async fn handle_get_feed_track(
         www_authenticate: None,
     })??;
 
-    Ok(Json(QueryResponse {
-        data: result,
-        pagination: Pagination {
-            cursor: None,
-            has_more: false,
-        },
-        meta: meta(&state),
-    })
-    .into_response())
+    match outcome {
+        TrackDetailOutcome::Found(result) => Ok(Json(QueryResponse {
+            data: result,
+            pagination: Pagination {
+                cursor: None,
+                has_more: false,
+            },
+            meta: meta(&state),
+        })
+        .into_response()),
+        TrackDetailOutcome::NotFound => Err(api::ApiError {
+            status: StatusCode::NOT_FOUND,
+            message: format!(
+                "track {not_found_track_guid} not found in feed {not_found_feed_guid}"
+            ),
+            www_authenticate: None,
+        }),
+        TrackDetailOutcome::Superseded { superseded_by } => Ok((
+            StatusCode::NOT_FOUND,
+            Json(FeedSupersededBody {
+                error: "feed not found".into(),
+                superseded_by,
+            }),
+        )
+            .into_response()),
+    }
 }
 
 // ── GET /v1/feeds/{guid}/route-history ──────────────────────────────────────
@@ -4382,89 +4386,20 @@ async fn handle_list_copy_records(
 }
 
 // ── GET /v1/guid-changes ─────────────────────────────────────────────────────
-// ADR 0052 section 4, task 007.
-
-/// The `(first_seen, source_url)` ordering of a [`GuidChangeResponse`]:
-/// newest `first_seen` first, `source_url` as the tiebreak, following the
-/// pattern of [`copy_record_sort_key`].
-fn guid_change_sort_key(row: &GuidChangeResponse) -> (i64, &str) {
-    (row.first_seen, row.source_url.as_str())
-}
+// ADR 0106 §4.
 
 async fn handle_list_guid_changes(
     State(state): State<Arc<api::AppState>>,
-    Query(params): Query<ListQuery>,
+    Query(_params): Query<ListQuery>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    let state2 = Arc::clone(&state);
-    let result = tokio::task::spawn_blocking(move || {
-        let conn = state2.db.reader().map_err(|e| api::ApiError {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            message: format!("database reader pool error: {e}"),
-            www_authenticate: None,
-        })?;
-        let limit = params.capped_limit().min(SEARCH_LIMIT_MAX);
-
-        let mut records: Vec<GuidChangeResponse> = db::list_guid_changes(&conn)?
-            .into_iter()
-            .map(guid_change_response)
-            .collect();
-        records.sort_by(|a, b| guid_change_sort_key(b).cmp(&guid_change_sort_key(a)));
-
-        let start = if let Some(ref cursor_str) = params.cursor {
-            let decoded = decode_cursor(cursor_str)?;
-            let parts: Vec<&str> = decoded.splitn(2, '\0').collect();
-            if parts.len() != 2 {
-                return Err(api::ApiError {
-                    status: StatusCode::BAD_REQUEST,
-                    message: "invalid cursor format".into(),
-                    www_authenticate: None,
-                });
-            }
-            let cursor_ts: i64 = parts[0].parse().map_err(|_err| api::ApiError {
-                status: StatusCode::BAD_REQUEST,
-                message: "invalid cursor timestamp".into(),
-                www_authenticate: None,
-            })?;
-            let cursor_source_url = parts[1];
-            records
-                .iter()
-                .position(|r| guid_change_sort_key(r) < (cursor_ts, cursor_source_url))
-                .unwrap_or(records.len())
-        } else {
-            0
-        };
-
-        let limit_usize = usize::try_from(limit).unwrap_or(usize::MAX);
-        let remaining = &records[start.min(records.len())..];
-        let has_more = remaining.len() > limit_usize;
-        let page: Vec<GuidChangeResponse> = remaining.iter().take(limit_usize).cloned().collect();
-
-        let next_cursor = if has_more {
-            page.last().map(|r| {
-                let (sort_ts, sort_url) = guid_change_sort_key(r);
-                encode_cursor(&format!("{sort_ts}\0{sort_url}"))
-            })
-        } else {
-            None
-        };
-
-        Ok::<_, api::ApiError>(QueryResponse {
-            data: page,
-            pagination: Pagination {
-                cursor: next_cursor,
-                has_more,
-            },
-            meta: meta(&state2),
-        })
-    })
-    .await
-    .map_err(|e| api::ApiError {
-        status: StatusCode::INTERNAL_SERVER_ERROR,
-        message: format!("internal task panic: {e}"),
-        www_authenticate: None,
-    })??;
-
-    Ok(Json(result))
+    Ok(Json(QueryResponse {
+        data: Vec::<GuidChangeResponse>::new(),
+        pagination: Pagination {
+            cursor: None,
+            has_more: false,
+        },
+        meta: meta(&state),
+    }))
 }
 
 // ── GET /v1/live-items ──────────────────────────────────────────────────────
@@ -5154,8 +5089,7 @@ fn feed_list_row_to_response(
     let (publisher_feed_guid, publisher_feed_title) =
         PublisherFeedName::into_fields(resolve_publisher_feed(conn, &r.feed_guid)?);
     let (copy_count, _newest_open_copy_first_seen) = db::open_copy_summary(conn, &r.feed_guid)?;
-    let pending_guid_change =
-        db::get_pending_guid_change_for_feed(conn, &r.feed_guid)?.map(pending_guid_change_response);
+    let pending_guid_change = None;
     // ADR 0068 §1: the link facts of a publisher row, only on request.
     // ADR 0071 §3: the named feeds of a music row, only on request.
     let named_feeds = if include_named_feeds && medium::is_music(r.raw_medium.as_deref()) {

@@ -12,21 +12,12 @@ use http::Request;
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
+type Db = Arc<Mutex<rusqlite::Connection>>;
+
 const CRAWL_TOKEN: &str = "adr0078-retire-crawl-token";
 const ADMIN_TOKEN: &str = "adr0078-retire-admin-token";
 const GONE_HOST: &str = "gone-adr0078.example.com";
 const ONE_DAY_SECS: i64 = 24 * 60 * 60;
-
-/// The GUID namespace that the ADR 0058 §1b rule derives a GUID from a URL with.
-const GUID_ORIGIN_NAMESPACE: uuid::Uuid = uuid::uuid!("ead4c236-bf58-58c6-a2c6-a6b28d128cb6");
-
-type Db = Arc<Mutex<rusqlite::Connection>>;
-
-fn uuidv5_of_url(url: &str) -> String {
-    let without_scheme = url.split_once("://").map_or(url, |(_, rest)| rest);
-    let name = without_scheme.strip_suffix('/').unwrap_or(without_scheme);
-    uuid::Uuid::new_v5(&GUID_ORIGIN_NAMESPACE, name.as_bytes()).to_string()
-}
 
 fn state(db: Db) -> Arc<stophammer::api::AppState> {
     let signer = Arc::new(common::temp_signer("test-adr0078-retire-signer"));
@@ -317,12 +308,11 @@ async fn gone_source_retire_deletes_each_index_row() {
 }
 
 #[tokio::test]
-async fn guid_change_retire_deletes_each_index_row() {
+async fn guid_change_moves_each_index_row_to_the_new_key() {
     for case in [MUSIC, PUBLISHER] {
         let (db, st, url, old_guid) = seed(case, "guidchange").await;
-        let new_guid = uuidv5_of_url(&url);
-        // The new record keeps the title, so only the old rows must go. The
-        // new GUID gives other track GUIDs, so the old rows are separate.
+        let new_guid = uuid::Uuid::new_v4().to_string();
+        // ADR 0106 §2: The feed and tracks keep their source metadata.
         let mut data = feed_data(case, &new_guid, 2);
         data["title"] = serde_json::json!(case.title);
         let body = ingest(router(&st), &url, "hash-g2", &data).await;
@@ -339,7 +329,7 @@ async fn guid_change_retire_deletes_each_index_row() {
         assert_eq!(
             entity_rows_on(&conn, &new_guid, &new_tracks),
             1 + i64::try_from(new_tracks.len()).expect("small count"),
-            "ADR 0078 §3: the new record must hold its own index rows"
+            "ADR 0106 §2: each feed and track must use the new search key"
         );
     }
 }

@@ -4,6 +4,9 @@
 Accepted on 2026-09-25
 
 - Changed by: ADR 0083: sections 1 and 2 and one invariant.
+- Changed by: [ADR 0106](0106-a-feed-changes-its-guid-in-place.md): sections 4
+  and 5, the last two invariants, the guards for a GUID change, and the first
+  condition of section 1 for a redirect.
 
 ## Date
 2026-09-24
@@ -54,7 +57,8 @@ The source URL of a record changes only by one of these:
 | Self link | The body at the source URL declares `atom:link rel="self"` with the value `F` |
 | Operator relocation | `PATCH /v1/feeds/{guid}` with the admin token, and a reason |
 
-For the first three triggers, the node also needs all of these:
+For the first three triggers, the node also needs all of these. ADR 0106 §6
+changes the first condition for a permanent redirect:
 
 - The body at `F` declares the GUID of the record.
 - `F` is not the source URL of a different record.
@@ -124,6 +128,8 @@ records the evidence in the reason field of the relocation.
 
 ### 4. The source URL can change its declared GUID
 
+ADR 0106 supersedes this section.
+
 The source URL controls what the record declares. When the source URL
 declares a new GUID that no record holds, ADR 0051 answers
 `guid_change_pending`. This ADR decides what follows.
@@ -167,6 +173,8 @@ community node gives the same answer. `last_seen` is local to the primary,
 as in ADR 0058.
 
 ### 5. A GUID change keeps a link to the old record
+
+ADR 0106 supersedes this section.
 
 In one transaction, the node:
 
@@ -271,8 +279,6 @@ feed is the first GUID change. These guards earn a test because each one
 protects a payment route:
 
 - A `302` from the source URL applies content and keeps the source URL.
-- A `301` from the source URL to a URL that declares a different GUID moves
-  nothing.
 - An `itunes:new-feed-url` value in a mirror body moves nothing.
 - A new GUID seen in one fetch only changes nothing.
 - A new GUID that is not the UUIDv5 of the source URL changes nothing, in any

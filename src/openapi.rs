@@ -452,8 +452,8 @@ fn spec_value(mode: DocMode) -> Value {
         "/v1/guid-changes".into(),
         json!({
             "get": operation(
-                "List pending GUID changes",
-                "Returns each pending GUID change with no `reject` decision, newest `first_seen` first (ADR 0052 section 4).",
+                "List GUID changes",
+                "Returns an empty list. ADR 0106 §4 keeps this route for compatibility.",
                 "Feeds",
                 vec![
                     query_param("cursor", "string", None, false, "Opaque pagination cursor."),
@@ -462,21 +462,12 @@ fn spec_value(mode: DocMode) -> Value {
                 None,
                 json!({
                     "200": json_response(
-                        "Paginated list of pending GUID changes.",
+                        "Empty list of GUID changes.",
                         envelope_schema(json!({
                             "type": "array",
                             "items": { "$ref": "#/components/schemas/GuidChangeResponse" }
                         })),
-                        query_envelope_example(json!([
-                            {
-                                "source_url": "https://feeds.example.com/my-music-feed",
-                                "old_guid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-                                "new_guid": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-                                "first_seen": 1710288000,
-                                "last_seen": 1710300000,
-                                "decision": null
-                            }
-                        ]))
+                        query_envelope_example(json!([]))
                     )
                 }),
                 None
@@ -823,7 +814,7 @@ fn spec_value(mode: DocMode) -> Value {
                     )),
                     json!({
                         "200": json_response(
-                            "Ingest result. A `source_conflict` reason (ADR 0051 section 5) also carries `source_url`, the stored source URL of the held record. A `guid_change_pending` or `guid_change_rejected` reason (ADR 0052 section 4) means the source URL declares a GUID other than the one the record holds. A GUID-change transition (ADR 0052 section 5), run either for the UUIDv5 of the source URL or for an operator approval, names its old and new GUID in `warnings`: `GUID changed from <old> to <new> (ADR 0052 UUIDv5)` or `(ADR 0052 approved)`. A `source_blocked` reason (ADR 0057 sections 2 and 3) means the source URL matches a `podcast:block` tag that applies to this index. A request with no `feed_data` and an `http_status` of `404` or `410` reports a gone source URL (ADR 0067). A counted report gets the reason `source_gone_observed` on its first answer, or `source_gone` on a second answer 24 hours or more after the first, which retires the record. Each other gone report gets `source_gone_ignored` and changes nothing. A `retired_source_conflict` reason means the GUID is held for its last source URL (ADR 0079 section 2).",
+                            "Ingest result. A `source_conflict` reason (ADR 0051 section 5) also carries `source_url`, the stored source URL of the held record. A GUID change at the source URL applies in place (ADR 0106). Its warning names the old and new GUIDs. A `source_blocked` reason (ADR 0057 sections 2 and 3) means the source URL matches a `podcast:block` tag that applies to this index. A request with no `feed_data` and an `http_status` of `404` or `410` reports a gone source URL (ADR 0067). A counted report gets the reason `source_gone_observed` on its first answer, or `source_gone` on a second answer 24 hours or more after the first, which retires the record. Each other gone report gets `source_gone_ignored` and changes nothing. A `retired_source_conflict` reason means the GUID is held for its last source URL (ADR 0079 section 2).",
                             json!({ "$ref": "#/components/schemas/IngestResponse" }),
                             json!({
                                 "accepted": true,
@@ -1038,35 +1029,6 @@ fn spec_value(mode: DocMode) -> Value {
                 )
             }),
         );
-        paths.insert(
-            "/v1/feeds/{guid}/guid-change".into(),
-            json!({
-                "post": operation(
-                    "Decide a pending GUID change",
-                    "The operator approves or rejects a pending GUID change (ADR 0052 section 4). `{guid}` is the old GUID the pending row names. The node does not keep the body of the submission that opened the row: `approve` only sets the decision, and the transition runs at the next submission of the new GUID from the source URL.",
-                    "Feeds",
-                    vec![path_param("guid", "string", "The old GUID a pending row names.")],
-                    Some(json_request_body(
-                        "Decision payload.",
-                        json!({
-                            "decision": "approve",
-                            "reason": "confirmed with the publisher"
-                        })
-                    )),
-                    json!({
-                        "200": json_response(
-                            "Decision applied.",
-                            json!({ "$ref": "#/components/schemas/GuidChangeDecisionResponse" }),
-                            json!({ "event_id": "uuid" })
-                        ),
-                        "400": error_response("Empty reason, or decision is not \"approve\" or \"reject\"."),
-                        "403": error_response("Missing or invalid admin token."),
-                        "404": error_response("No pending GUID change names this GUID as its old GUID.")
-                    }),
-                    Some(admin_only_security())
-                )
-            }),
-        );
     }
 
     json!({
@@ -1128,6 +1090,15 @@ fn schemas_object() -> serde_json::Map<String, Value> {
         let value = serde_json::to_value(schema).expect("utoipa schema serializes");
         map.insert(name, value);
     }
+    // ADR 0106 removes the decision route; ADR 0044 keeps its published v1 schema.
+    map.insert(
+        "GuidChangeDecisionResponse".into(),
+        json!({
+            "type": "object",
+            "properties": { "event_id": { "type": "string" } },
+            "required": ["event_id"]
+        }),
+    );
     map
 }
 
@@ -1163,7 +1134,7 @@ fn feed_path_item(mode: DocMode) -> Value {
                     }))
                 ),
                 "404": json_response(
-                    "Feed not found. Carries `superseded_by`, the GUID that replaced this one, when a GUID-change transition retired it (ADR 0052 section 5).",
+                    "Feed not found. Carries `superseded_by`, the GUID that replaced this one, when a GUID change changed it in place (ADR 0106 §3).",
                     json!({ "$ref": "#/components/schemas/FeedSupersededBody" }),
                     json!({ "error": "feed not found", "superseded_by": "new-feed-guid" })
                 )
