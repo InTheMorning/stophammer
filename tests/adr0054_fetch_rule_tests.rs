@@ -3,7 +3,8 @@
 //
 // This file covers task 003 (`stophammer`): `fetch_guard::is_public_ip`, the
 // URL checks of `fetch_guard::validate_node_url`, and the read-route /
-// ingest-warning behavior of `model::web_url_or_none`.
+// ingest-warning behavior of a URL field. The unit tests of
+// `web_url_or_none` are in stophammer-parser `tests/web_link.rs`.
 
 #![recursion_limit = "256"]
 
@@ -19,7 +20,6 @@ use http_body_util::BodyExt;
 use tower::ServiceExt;
 
 use stophammer::fetch_guard::{is_public_ip, validate_node_url};
-use stophammer::model::web_url_or_none;
 
 // ── is_public_ip: ADR 0054 section 5 ────────────────────────────────────────
 
@@ -140,40 +140,6 @@ fn validate_node_url_rejects_userinfo() {
 #[test]
 fn validate_node_url_accepts_a_public_https_url() {
     assert!(validate_node_url("https://93.184.216.34/").is_ok());
-}
-
-// ── web_url_or_none: the read-route helper ──────────────────────────────────
-
-#[test]
-fn web_url_or_none_keeps_an_https_value() {
-    assert_eq!(
-        web_url_or_none(Some("https://img.example.com/cover.jpg")),
-        Some("https://img.example.com/cover.jpg".to_string())
-    );
-}
-
-#[test]
-fn web_url_or_none_keeps_an_http_value() {
-    assert_eq!(
-        web_url_or_none(Some("http://img.example.com/cover.jpg")),
-        Some("http://img.example.com/cover.jpg".to_string())
-    );
-}
-
-#[test]
-fn web_url_or_none_rejects_javascript_and_data_schemes() {
-    assert_eq!(web_url_or_none(Some("javascript:alert(1)")), None);
-    assert_eq!(web_url_or_none(Some("data:audio/mp3;base64,AA")), None);
-}
-
-#[test]
-fn web_url_or_none_rejects_an_unparseable_value() {
-    assert_eq!(web_url_or_none(Some("not a url")), None);
-}
-
-#[test]
-fn web_url_or_none_passes_through_none() {
-    assert_eq!(web_url_or_none(None), None);
 }
 
 // ── Ingest-to-query end-to-end: ADR 0054 section 4 ──────────────────────────

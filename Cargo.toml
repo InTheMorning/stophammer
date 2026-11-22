@@ -49,6 +49,9 @@ utoipa = "5"
 unicode-normalization = "0.1"
 # musicindex ADR 0083 R-VERSION-8: the build values of the app.
 musicindex-build-info = { git = "https://github.com/InTheMorning/musicindex-lib", rev = "e6d11118d33069c26c01368f7de71524988039c6" }
+# musicindex ADR 0086 R-FEED-1 items 2 to 4 and ADR 0054 §4 and §4a: the parser
+# owns the read rules of a web URL and of a link with no scheme.
+stophammer-parser = { git = "https://github.com/InTheMorning/stophammer-parser", rev = "7bd898a36eea2aeabfa17b2a8a2e9f192af5472c", default-features = false }
 
 [build-dependencies]
 musicindex-build-info = { git = "https://github.com/InTheMorning/musicindex-lib", rev = "e6d11118d33069c26c01368f7de71524988039c6" }
