@@ -109,6 +109,10 @@ repository with its own GitHub upstream under `InTheMorning`.
 `stophammer-crawler/AGENTS.md` and `stophammer-parser/AGENTS.md` give the
 rules of those repositories. Read the one for the crate that you change.
 
+Operator choice 2026-11-23: the stophammer session owns the three
+repositories. It commits in each repository separately, with the gate of
+the `AGENTS.md` of that repository.
+
 ## Project Overview
 
 Stophammer is a quality-gated V4V (Value-for-Value) music podcast index
