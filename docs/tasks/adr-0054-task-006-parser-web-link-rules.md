@@ -30,6 +30,9 @@ Visual: none.
 
 ## Operator Choices
 
-- 2026-11-22: The parser release tag must point to the commit of the node
-  rev pin (ADR 0063 §1). The release check is manual until an incident
-  occurs.
+- Operator choice (2026-11-22): the node rev pin and the parser release tag
+  must hold the same parser source (ADR 0063 §1). The tag can be the version
+  commit that `scripts/create-release.sh` adds after the pin, because that
+  commit changes only `Cargo.toml` and `Cargo.lock`. Before a candidate, a
+  person runs `git -C stophammer-parser diff --stat PIN TAG -- src` and the
+  output must be empty. No test does this check until an incident occurs.
