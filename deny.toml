@@ -56,6 +56,9 @@ ignore = [
     # files of the node with it. The replacement is the PemObject API of
     # rustls-pki-types. Remove when the node and axum-server use it.
     { id = "RUSTSEC-2025-0134", reason = "reads local PEM files only; no fixed version" },
+    # chrono is unmaintained. stophammer-parser uses it for dates. Remove
+    # when the parser uses jiff or time.
+    { id = "RUSTSEC-2026-0543", reason = "date parse in stophammer-parser; no fixed version" },
 ]
 
 # ── Bans ──────────────────────────────────────────────────────────────────────
