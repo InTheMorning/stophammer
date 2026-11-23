@@ -849,7 +849,7 @@ pub fn guid_origin_matches(feed_guid: &str, url: &str) -> bool {
 }
 
 // ADR 0054 §4 and §4a: the parser owns `web_url_or_none` and
-// `web_link_for_read` (musicindex ADR 0086 R-FEED-1 item 4). The node keeps
+// `web_link_for_read` (musicindex ADR 0093 R-FEED-1 item 4). The node keeps
 // no copy. `web_link_for_read` serves a link row of the type `website` or
 // `web_page` (ADR 0054 task 005) and a live item link (ADR 0064 task 006).
 pub use stophammer_parser::{web_link_for_read, web_url_or_none};

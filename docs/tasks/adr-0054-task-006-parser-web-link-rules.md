@@ -1,7 +1,7 @@
 # ADR 0054 Task 006: The Node Uses The Parser Web Link Rules
 
 Owner: [ADR 0054](../adr/archive/0054-a-fetch-reaches-only-public-feed-hosts.md)
-§4 and §4a. musicindex ADR 0086 R-FEED-1 items 2 to 4 put the code in
+§4 and §4a. musicindex ADR 0093 R-FEED-1 items 2 to 4 put the code in
 `stophammer-parser`.
 
 Status: done in commit `2bc81a0`, with stophammer-parser `7bd898a`.

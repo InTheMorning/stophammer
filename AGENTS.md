@@ -20,7 +20,7 @@ release, except the work in the next list.
   image build and the install check of the first candidate.
 - musicindex ADR 0083: `GET /node/info` and `stophammer --version` give the
   build values.
-- `stophammer-parser` holds musicindex ADR 0086 R-FEED-2 to R-FEED-4. Its
+- `stophammer-parser` holds musicindex ADR 0093 R-FEED-2 to R-FEED-4. Its
   `AGENTS.md` gives the state.
 - [ADR 0095](docs/adr/0095-a-release-on-two-platforms-is-two-feeds.md) changes
   no code, so no release holds it.
