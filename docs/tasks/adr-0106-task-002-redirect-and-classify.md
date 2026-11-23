@@ -193,3 +193,11 @@ Write each comment in Simplified Technical English
   that row. The primary and each community node delete the same link. ADR
   0106 §3 gives the link only for an old GUID that no record holds, so this
   needs no new ADR.
+
+## Open Questions
+
+- 2026-11-22, review of `a3c92f1` (F1): §8 step 5 puts the source block of
+  ADR 0057 before the verifier chain only for a GUID change. The `Update` and
+  `NewFeed` arms keep the block after the verifiers. A verifier that refuses
+  a body thus stops the block for those arms. The operator made no change and
+  asked for no new ADR.
