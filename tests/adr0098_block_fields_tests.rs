@@ -515,6 +515,7 @@ fn payment_route_sum_groups_routes_by_block_index() {
                 owner_name: None,
                 pub_date: None,
                 remote_items: vec![],
+                podroll: vec![],
                 persons: vec![],
                 entity_ids: vec![],
                 links: vec![],

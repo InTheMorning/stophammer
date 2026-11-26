@@ -86,6 +86,9 @@ pub struct IngestFeedData {
     /// Feed-level `podcast:remoteItem` references to artist/publisher feeds.
     #[serde(default)]
     pub remote_items: Vec<IngestRemoteFeedRef>,
+    /// Feed references in channel `podcast:podroll` tags (ADR 0107).
+    #[serde(default)]
+    pub podroll: Vec<IngestRemoteFeedRef>,
     /// Feed-level contributor claims from `podcast:person`.
     #[serde(default)]
     pub persons: Vec<IngestPerson>,

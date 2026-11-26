@@ -499,6 +499,7 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
         vec![],
         vec![],
         vec![],
+        vec![],
         Vec::new(),
         vec![],
         vec![(track, vec![route], vec![], vec![])],
@@ -632,6 +633,7 @@ fn ingest_transaction_rolls_back_search_quality_on_failure() {
     let result = stophammer::db::ingest_transaction(
         &mut conn,
         feed,
+        vec![],
         vec![],
         vec![],
         vec![],

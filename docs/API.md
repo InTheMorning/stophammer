@@ -809,7 +809,7 @@ ignores a `limit` above the stated maximum, and returns the maximum instead.
 Returns a single feed by its `podcast:guid`.
 
 - **Authentication:** None
-- **Include options:** `tracks`, `payment_routes`, `value_blocks`, `source_links`, `source_ids`, `source_contributors`, `source_platforms`, `source_release_claims`, `remote_items`, `publisher`
+- **Include options:** `tracks`, `payment_routes`, `value_blocks`, `source_links`, `source_ids`, `source_contributors`, `source_platforms`, `source_release_claims`, `remote_items`, `podroll`, `publisher`
 
 **Response (`200 OK`):**
 
@@ -1030,6 +1030,12 @@ Returns a single feed by its `podcast:guid`.
 `raw_medium` is the verbatim channel-level `podcast:medium` value from RSS.
 `remote_items` is the stored source-truth snapshot of feed-level
 `podcast:remoteItem` declarations.
+`podroll` gives the channel entries of `podcast:podroll` when requested
+(ADR 0107). A podroll entry is not in `remote_items`.
+An entry gives `position`, `medium`, `remote_feed_guid`, and
+`remote_feed_url`. It also gives the named feed title, image URL, and release
+artist when the node holds that feed. When the node does not hold that feed,
+those summary fields are null.
 
 `last_build_date` is the channel `lastBuildDate`: the time the feed file was
 generated. It is not a release date, and a generator can rewrite it on every
@@ -2522,7 +2528,7 @@ index (ADR 0071 section 5).
   "capabilities": ["query", "search", "sync", "push", "name_lists", "sort", "feed_by_url", "artist_newest", "artist_role_filter", "publisher_row_date", "artist_row_release_artist", "release_track_counts", "search_feed_summary", "search_medium"],
   "entity_types": ["feed", "track", "publisher"],
   "include_params": {
-    "feed": ["tracks", "payment_routes", "value_blocks", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher"],
+    "feed": ["tracks", "payment_routes", "value_blocks", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "podroll", "publisher"],
     "track": ["payment_routes", "value_blocks", "value_time_splits", "local_value_time_splits", "source_links", "source_ids", "source_contributors", "source_release_claims", "source_enclosures", "source_transcripts", "remote_items", "publisher"],
     "feed_list": ["link_facts", "named_feeds"],
     "artist_list": ["link_facts"],

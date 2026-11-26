@@ -128,6 +128,7 @@ fn ingest_and_count_track_events(
         conn,
         &feed_model,
         &[], // no remote items
+        &[], // no podroll items
         &[], // no source contributor claims
         &[], // no source entity IDs
         &[], // no source links
@@ -148,6 +149,7 @@ fn ingest_and_count_track_events(
     stophammer::db::ingest_transaction(
         conn,
         feed_model,
+        vec![],
         vec![],
         vec![],
         vec![],

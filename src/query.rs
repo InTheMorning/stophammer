@@ -446,6 +446,7 @@ pub const FEED_INCLUDES: &[&str] = &[
     "source_platforms",
     "source_release_claims",
     "remote_items",
+    "podroll",
     "publisher",
 ];
 
@@ -808,6 +809,8 @@ struct FeedResponse {
     source_release_claims: Option<Vec<SourceReleaseClaimResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     remote_items: Option<Vec<FeedRemoteItemResponse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    podroll: Option<Vec<FeedPodrollItemResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     publisher: Option<Vec<PublisherResponse>>,
     /// Each other publisher feed that a confirmed album of this publisher
@@ -1775,6 +1778,19 @@ struct FeedRemoteItemResponse {
     remote_track_image_url: Option<String>,
 }
 
+/// One entry of the channel podroll, with the summary of the named feed
+/// (ADR 0107 §4, ADR 0059 §1).
+#[derive(Debug, Serialize, ToSchema)]
+struct FeedPodrollItemResponse {
+    position: i64,
+    medium: Option<String>,
+    remote_feed_guid: String,
+    remote_feed_url: Option<String>,
+    remote_feed_title: Option<String>,
+    remote_feed_image_url: Option<String>,
+    remote_release_artist: Option<String>,
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 struct TrackRemoteItemResponse {
     position: i64,
@@ -2684,6 +2700,7 @@ fn build_feed_response(
         source_platforms: None,
         source_release_claims: None,
         remote_items: None,
+        podroll: None,
         publisher: None,
         co_credited_feeds: None,
         named_feeds: None,
@@ -2808,6 +2825,27 @@ fn build_feed_response(
                     items.push(feed_remote_item_response(conn, item)?);
                 }
                 resp.remote_items = Some(items);
+            }
+            "podroll" => {
+                let mut items = Vec::new();
+                for item in db::get_feed_podroll_for_feed(conn, &feed_guid)? {
+                    let resolution = db::resolve_listed_feed(
+                        conn,
+                        &item.remote_feed_guid,
+                        item.remote_feed_url.as_deref(),
+                    )?;
+                    let summary = named_feed_summary(conn, resolution.feed_guid())?;
+                    items.push(FeedPodrollItemResponse {
+                        position: item.position,
+                        medium: item.medium,
+                        remote_feed_guid: item.remote_feed_guid,
+                        remote_feed_url: web_url_or_none(item.remote_feed_url.as_deref()),
+                        remote_feed_title: summary.title,
+                        remote_feed_image_url: summary.image_url,
+                        remote_release_artist: summary.release_artist,
+                    });
+                }
+                resp.podroll = Some(items);
             }
             "publisher" => {
                 // ADR 0061 §1: reuse the rows the publisher-feed guard above
@@ -5184,6 +5222,7 @@ fn feed_list_row_to_response(
         source_platforms: None,
         source_release_claims: None,
         remote_items: None,
+        podroll: None,
         publisher: None,
         co_credited_feeds: None,
         named_feeds,
@@ -7895,6 +7934,7 @@ pub(crate) fn response_schemas() -> Vec<SchemaEntry> {
     register_schema::<Pagination>(&mut schemas);
     register_schema::<ResponseMeta>(&mut schemas);
     register_schema::<FeedResponse>(&mut schemas);
+    register_schema::<FeedPodrollItemResponse>(&mut schemas);
     register_schema::<PlaylistPublisherRow>(&mut schemas);
     register_schema::<PlaylistPublisherResponse>(&mut schemas);
     register_schema::<TrackResponse>(&mut schemas);

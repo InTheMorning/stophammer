@@ -11,7 +11,7 @@
 use std::collections::BTreeMap;
 
 use crate::model::{
-    Artist, ArtistCredit, Feed, FeedBlockKind, FeedListValueRaw, FeedPaymentRoute,
+    Artist, ArtistCredit, Feed, FeedBlockKind, FeedListValueRaw, FeedPaymentRoute, FeedPodrollItem,
     FeedRemoteItemRaw, LiveEvent, PaymentRoute, RouteRecipient, SourceContributorClaim,
     SourceEntityIdClaim, SourceEntityLink, SourceItemEnclosure, SourceItemTranscript,
     SourcePlatformClaim, SourceReleaseClaim, Track, TrackRemoteItemRaw, ValueTimeSplit,
@@ -276,6 +276,10 @@ pub struct FeedRoutesReplacedPayload {
 pub struct FeedRemoteItemsReplacedPayload {
     pub feed_guid: String,
     pub remote_items: Vec<FeedRemoteItemRaw>,
+    /// The full podroll of the feed (ADR 0107 §3). `None` leaves the podroll
+    /// rows of the node. An event that a node signed before ADR 0107 has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub podroll: Option<Vec<FeedPodrollItem>>,
 }
 
 /// Emitted when the full set of per-track `podcast:remoteItem` refs is replaced.

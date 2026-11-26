@@ -19,11 +19,11 @@
 
 use crate::event::{Event, EventPayload, EventType};
 use crate::model::{
-    CopySummary, Feed, FeedListValueRaw, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent,
-    PaymentRoute, RouteRecipient, RouteType, SourceContributorClaim, SourceEntityIdClaim,
-    SourceEntityLink, SourceItemEnclosure, SourceItemTranscript, SourcePlatformClaim,
-    SourceReleaseClaim, Track, TrackRemoteItemRaw, ValueTimeSplit, ValueTimeSplitForm,
-    ValueTimeSplitRecipient, feed_recipient_set, order_key, recipient_set,
+    CopySummary, Feed, FeedListValueRaw, FeedPaymentRoute, FeedPodrollItem, FeedRemoteItemRaw,
+    LiveEvent, PaymentRoute, RouteRecipient, RouteType, SourceContributorClaim,
+    SourceEntityIdClaim, SourceEntityLink, SourceItemEnclosure, SourceItemTranscript,
+    SourcePlatformClaim, SourceReleaseClaim, Track, TrackRemoteItemRaw, ValueTimeSplit,
+    ValueTimeSplitForm, ValueTimeSplitRecipient, feed_recipient_set, order_key, recipient_set,
 };
 use crate::signing::NodeSigner;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -292,6 +292,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0065_value_block_fields.sql"),
     // Migration 66: remove pending GUID change state (ADR 0106 §4).
     include_str!("../migrations/0066_drop_feed_guid_changes.sql"),
+    // Migration 67: store channel podcast:podroll entries (ADR 0107).
+    include_str!("../migrations/0067_feed_podroll_items.sql"),
 ];
 
 /// First line of a migration that must run with foreign key enforcement
@@ -1232,6 +1234,7 @@ pub const GUID_CHANGE_COLUMNS: &[(&str, &str)] = &[
     ("feed_list_value_raw", "feed_guid"),
     ("value_time_splits", "source_feed_guid"),
     ("feed_remote_items_raw", "feed_guid"),
+    ("feed_podroll_items", "feed_guid"),
     ("track_remote_items_raw", "feed_guid"),
     ("live_events", "feed_guid"),
     ("source_contributor_claims", "feed_guid"),
@@ -1256,6 +1259,7 @@ pub const GUID_CHANGE_STAYS: &[(&str, &str, &str)] = &[
         "remote_feed_guid",
         "a different feed",
     ),
+    ("feed_podroll_items", "remote_feed_guid", "a different feed"),
     (
         "track_remote_items_raw",
         "remote_feed_guid",
@@ -2007,6 +2011,63 @@ pub fn get_feed_remote_items_for_feed(
         items.push(row?);
     }
     Ok(items)
+}
+
+/// Gets the podroll rows of a feed in position sequence (ADR 0107 §2).
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the query fails.
+pub fn get_feed_podroll_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Vec<FeedPodrollItem>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, feed_guid, position, medium, remote_feed_guid, remote_feed_url \
+         FROM feed_podroll_items WHERE feed_guid = ?1 ORDER BY position",
+    )?;
+    let rows = stmt.query_map(params![feed_guid], |row| {
+        Ok(FeedPodrollItem {
+            id: row.get(0)?,
+            feed_guid: row.get(1)?,
+            position: row.get(2)?,
+            medium: row.get(3)?,
+            remote_feed_guid: row.get(4)?,
+            remote_feed_url: row.get(5)?,
+        })
+    })?;
+    rows.collect::<Result<_, _>>().map_err(DbError::from)
+}
+
+/// Replaces the podroll rows of a feed (ADR 0107 §2).
+///
+/// # Errors
+///
+/// Returns [`DbError`] if a statement fails.
+pub fn replace_feed_podroll(
+    conn: &Connection,
+    feed_guid: &str,
+    podroll: &[FeedPodrollItem],
+) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM feed_podroll_items WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    for item in podroll {
+        conn.execute(
+            "INSERT INTO feed_podroll_items \
+             (feed_guid, position, medium, remote_feed_guid, remote_feed_url) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                item.feed_guid,
+                item.position,
+                item.medium,
+                item.remote_feed_guid,
+                item.remote_feed_url
+            ],
+        )?;
+    }
+    Ok(())
 }
 
 pub fn get_track_remote_items_for_track(
@@ -3109,6 +3170,10 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
         params![feed_guid],
     )?;
     conn.execute(
+        "DELETE FROM feed_podroll_items WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    conn.execute(
         "DELETE FROM live_events WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
@@ -3791,6 +3856,18 @@ fn feed_remote_items_changed(existing: &[FeedRemoteItemRaw], new: &[FeedRemoteIt
         })
 }
 
+/// Tells if the podroll of a feed changed (ADR 0107 §3). It does not compare
+/// the row `id`, because a stored row has one and a new row does not.
+fn feed_podroll_changed(existing: &[FeedPodrollItem], new: &[FeedPodrollItem]) -> bool {
+    existing.len() != new.len()
+        || existing.iter().zip(new).any(|(a, b)| {
+            a.position != b.position
+                || a.medium != b.medium
+                || a.remote_feed_guid != b.remote_feed_guid
+                || a.remote_feed_url != b.remote_feed_url
+        })
+}
+
 fn feed_list_values_changed(existing: &[FeedListValueRaw], new: &[FeedListValueRaw]) -> bool {
     // Compare value-by-value; order matters.
     existing.len() != new.len()
@@ -4015,6 +4092,7 @@ pub fn build_diff_events(
     conn: &Connection,
     feed: &Feed,
     remote_items: &[FeedRemoteItemRaw],
+    podroll: &[FeedPodrollItem],
     source_contributor_claims: &[SourceContributorClaim],
     source_entity_ids: &[SourceEntityIdClaim],
     source_entity_links: &[SourceEntityLink],
@@ -4039,6 +4117,7 @@ pub fn build_diff_events(
             build_all_events(
                 feed,
                 remote_items,
+                podroll,
                 source_contributor_claims,
                 source_entity_ids,
                 source_entity_links,
@@ -4060,6 +4139,7 @@ pub fn build_diff_events(
                 conn,
                 feed,
                 remote_items,
+                podroll,
                 source_contributor_claims,
                 source_entity_ids,
                 source_entity_links,
@@ -4091,6 +4171,7 @@ pub fn build_diff_events(
 fn build_all_events(
     feed: &Feed,
     remote_items: &[FeedRemoteItemRaw],
+    podroll: &[FeedPodrollItem],
     source_contributor_claims: &[SourceContributorClaim],
     source_entity_ids: &[SourceEntityIdClaim],
     source_entity_links: &[SourceEntityLink],
@@ -4126,6 +4207,7 @@ fn build_all_events(
         event_rows.push(build_feed_remote_items_event(
             feed,
             remote_items,
+            podroll,
             now,
             &warn_vec,
         )?);
@@ -4223,6 +4305,7 @@ fn build_changed_events(
     conn: &Connection,
     feed: &Feed,
     remote_items: &[FeedRemoteItemRaw],
+    podroll: &[FeedPodrollItem],
     source_contributor_claims: &[SourceContributorClaim],
     source_entity_ids: &[SourceEntityIdClaim],
     source_entity_links: &[SourceEntityLink],
@@ -4270,11 +4353,15 @@ fn build_changed_events(
 
     // --- Feed remote-item diff ---
     let existing_remote_items = get_feed_remote_items_for_feed(conn, &feed.feed_guid)?;
+    let existing_podroll = get_feed_podroll_for_feed(conn, &feed.feed_guid)?;
     // A change to an empty list also needs an event, as for the routes.
-    if feed_remote_items_changed(&existing_remote_items, remote_items) {
+    if feed_remote_items_changed(&existing_remote_items, remote_items)
+        || feed_podroll_changed(&existing_podroll, podroll)
+    {
         event_rows.push(build_feed_remote_items_event(
             feed,
             remote_items,
+            podroll,
             now,
             &warn_vec,
         )?);
@@ -4508,12 +4595,14 @@ fn build_feed_list_value_event(
 fn build_feed_remote_items_event(
     feed: &Feed,
     remote_items: &[FeedRemoteItemRaw],
+    podroll: &[FeedPodrollItem],
     now: i64,
     warnings: &[String],
 ) -> Result<EventRow, DbError> {
     let payload = crate::event::FeedRemoteItemsReplacedPayload {
         feed_guid: feed.feed_guid.clone(),
         remote_items: remote_items.to_vec(),
+        podroll: Some(podroll.to_vec()),
     };
     let payload_json = serde_json::to_string(&payload)?;
     Ok(EventRow {
@@ -7056,6 +7145,7 @@ pub fn ingest_transaction(
     conn: &mut Connection,
     feed: Feed,
     remote_items: Vec<FeedRemoteItemRaw>,
+    podroll: Vec<FeedPodrollItem>,
     source_contributor_claims: Vec<SourceContributorClaim>,
     source_entity_ids: Vec<SourceEntityIdClaim>,
     source_entity_links: Vec<SourceEntityLink>,
@@ -7223,6 +7313,8 @@ pub fn ingest_transaction(
             ],
         )?;
     }
+
+    replace_feed_podroll(&tx, &feed.feed_guid, &podroll)?;
 
     // 3c2. Replace feed list value block for musicL feeds (ADR 0060 §4)
     replace_feed_list_value_raw(&tx, &feed.feed_guid, &feed_list_values)?;

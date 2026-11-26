@@ -113,6 +113,7 @@ fn ingest_feed_with_tracks(
         vec![],
         vec![],
         vec![],
+        vec![],
         Vec::new(),
         vec![],
         tracks,

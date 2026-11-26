@@ -709,6 +709,7 @@ fn apply_feed_remote_items_replaced() {
             remote_item_guid: None,
             remote_item_title: None,
         }],
+        podroll: None,
     };
     let payload_json = serde_json::to_string(&payload_inner).expect("serialize payload");
     let ev = Event {

@@ -1224,6 +1224,7 @@ mod tests {
             owner_name: None,
             pub_date: None,
             remote_items: vec![],
+            podroll: vec![],
             persons: vec![],
             entity_ids: vec![],
             links: vec![],
@@ -3314,6 +3315,18 @@ async fn handle_ingest_feed(
                 remote_item_title: item.item_title.clone(),
             })
             .collect();
+        let feed_podroll: Vec<model::FeedPodrollItem> = feed_data
+            .podroll
+            .iter()
+            .map(|item| model::FeedPodrollItem {
+                id: None,
+                feed_guid: feed_data.feed_guid.clone(),
+                position: item.position,
+                medium: item.medium.clone(),
+                remote_feed_guid: item.remote_feed_guid.clone(),
+                remote_feed_url: item.remote_feed_url.clone(),
+            })
+            .collect();
         let mut source_entity_ids = build_source_entity_id_claims(
             &feed_data.feed_guid,
             "feed",
@@ -3831,6 +3844,7 @@ async fn handle_ingest_feed(
             &conn,
             &feed,
             &feed_remote_items,
+            &feed_podroll,
             &source_contributor_claims,
             &source_entity_ids,
             &source_entity_links,
@@ -3898,6 +3912,7 @@ async fn handle_ingest_feed(
             &mut conn,
             feed,
             feed_remote_items,
+            feed_podroll,
             source_contributor_claims,
             source_entity_ids,
             source_entity_links,

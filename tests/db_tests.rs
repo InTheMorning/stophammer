@@ -1747,6 +1747,7 @@ fn ingest_transaction_persists_source_claim_snapshots_and_events() {
         &conn,
         &feed,
         &[],
+        &[],
         &contributor_claims,
         &entity_id_claims,
         &[],
@@ -1775,6 +1776,7 @@ fn ingest_transaction_persists_source_claim_snapshots_and_events() {
     stophammer::db::ingest_transaction(
         &mut conn,
         feed.clone(),
+        vec![],
         vec![],
         contributor_claims.clone(),
         entity_id_claims.clone(),
@@ -1824,6 +1826,7 @@ fn ingest_transaction_persists_source_claim_snapshots_and_events() {
     let repeat_rows = stophammer::db::build_diff_events(
         &conn,
         &feed,
+        &[],
         &[],
         &later_contributor_claims,
         &later_entity_id_claims,

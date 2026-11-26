@@ -367,6 +367,7 @@ fn feed_remote_items_replaced_event_with_rel_applies_identically_on_second_datab
             remote_item_guid: None,
             remote_item_title: None,
         }],
+        podroll: None,
     };
     let payload_json = serde_json::to_string(&payload_inner).expect("serialize payload");
     let ev = Event {

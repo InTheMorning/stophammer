@@ -39,6 +39,7 @@ fn sample_request() -> IngestFeedRequest {
             locked_owner: None,
             pub_date: None,
             remote_items: vec![],
+            podroll: vec![],
             persons: vec![],
             entity_ids: vec![],
             links: vec![],

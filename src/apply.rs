@@ -146,6 +146,9 @@ fn apply_single_event_inner(
         }
         event::EventPayload::FeedRemoteItemsReplaced(p) => {
             db::replace_feed_remote_items_raw(conn, &p.feed_guid, &p.remote_items)?;
+            if let Some(podroll) = &p.podroll {
+                db::replace_feed_podroll(conn, &p.feed_guid, podroll)?;
+            }
         }
         event::EventPayload::FeedListValueReplaced(p) => {
             db::replace_feed_list_value_raw(conn, &p.feed_guid, &p.list_values)?;

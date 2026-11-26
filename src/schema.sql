@@ -199,6 +199,18 @@ CREATE TABLE IF NOT EXISTS feed_remote_items_raw (
 CREATE INDEX IF NOT EXISTS idx_feed_remote_items_feed ON feed_remote_items_raw(feed_guid);
 CREATE INDEX IF NOT EXISTS idx_feed_remote_items_guid ON feed_remote_items_raw(remote_feed_guid);
 
+CREATE TABLE IF NOT EXISTS feed_podroll_items (
+    id               INTEGER PRIMARY KEY,
+    feed_guid        TEXT NOT NULL REFERENCES feeds(feed_guid),
+    position         INTEGER NOT NULL,
+    medium           TEXT,
+    remote_feed_guid TEXT NOT NULL,
+    remote_feed_url  TEXT,
+    UNIQUE(feed_guid, position)
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_feed_podroll_items_guid ON feed_podroll_items(remote_feed_guid);
+
 CREATE TABLE IF NOT EXISTS track_remote_items_raw (
     id               INTEGER PRIMARY KEY,
     feed_guid        TEXT,
@@ -595,6 +607,8 @@ BEGIN
       AND entity_id = OLD.feed_guid;
 
     DELETE FROM feed_remote_items_raw
+    WHERE feed_guid = OLD.feed_guid;
+    DELETE FROM feed_podroll_items
     WHERE feed_guid = OLD.feed_guid;
 
     DELETE FROM live_events

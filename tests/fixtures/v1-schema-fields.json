@@ -208,6 +208,7 @@
       "oldest_item_at",
       "payment_routes",
       "pending_guid_change",
+      "podroll",
       "publisher",
       "publisher_feed_guid",
       "publisher_feed_title",
@@ -237,6 +238,17 @@
       "unconfirmed_release_artists",
       "updated_at",
       "value_blocks"
+    ]
+  },
+  "FeedPodrollItemResponse": {
+    "properties": [
+      "medium",
+      "position",
+      "remote_feed_guid",
+      "remote_feed_image_url",
+      "remote_feed_title",
+      "remote_feed_url",
+      "remote_release_artist"
     ]
   },
   "FeedSupersededBody": {

@@ -430,6 +430,17 @@ pub struct FeedRemoteItemRaw {
     pub remote_item_title: Option<String>,
 }
 
+/// One `podcast:remoteItem` of the channel `podcast:podroll` (ADR 0107 §2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FeedPodrollItem {
+    pub id: Option<i64>,
+    pub feed_guid: String,
+    pub position: i64,
+    pub medium: Option<String>,
+    pub remote_feed_guid: String,
+    pub remote_feed_url: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TrackRemoteItemRaw {
     pub id: Option<i64>,

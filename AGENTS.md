@@ -28,6 +28,10 @@ release, except the work in the next list.
   a blocking body of a known feed skips the verifier chain, and the gossip
   crawler does not skip a refused publisher feed. Its "Open Checks" give the
   check after the deploy.
+- [ADR 0107](docs/adr/0107-a-feed-keeps-its-podroll.md): the node keeps the
+  podroll of each feed and gives it with `include=podroll`. After the deploy,
+  the refill pass and the refill check of its "Consequences" are open until
+  the check passes (ADR 0077 §2).
 
 ### Open Checks
 
