@@ -24,6 +24,10 @@ release, except the work in the next list.
   `AGENTS.md` gives the state.
 - [ADR 0095](docs/adr/0095-a-release-on-two-platforms-is-two-feeds.md) changes
   no code, so no release holds it.
+- [ADR 0057 task 003](docs/tasks/adr-0057-task-003-a-block-skips-the-verifier-chain.md):
+  a blocking body of a known feed skips the verifier chain, and the gossip
+  crawler does not skip a refused publisher feed. Its "Open Checks" give the
+  check after the deploy.
 
 ### Open Checks
 

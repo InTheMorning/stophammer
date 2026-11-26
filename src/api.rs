@@ -2753,29 +2753,42 @@ async fn handle_ingest_feed(
             // the write phase retires the record whatever the verifiers
             // give. The write phase does the two checks again under the
             // writer lock.
-            let mut guid_change_skips_chain = false;
-            if let Some(feed_data) = req.feed_data.as_ref()
-                && matches!(
-                    db::classify_submission(
-                        &reader,
-                        &feed_data.feed_guid,
-                        &req.source_url,
-                        &req.canonical_url,
-                    )?,
-                    db::SubmissionClass::GuidChange { .. }
-                )
-            {
-                req.force_reingest = true;
-                if let Some(refusal) = retired_source_refusal(
+            //
+            // ADR 0057 §3: an Update case with a body that blocks this index
+            // retires the record. That body also skips the chain, so that a
+            // verifier cannot refuse it first. Example: `medium_music`
+            // refuses a publisher feed with no music `remoteItem`. Operator
+            // choice 2026-11-26 in ADR 0057 task 003.
+            let mut blocking_body_skips_chain = false;
+            if let Some(feed_data) = req.feed_data.as_ref() {
+                match db::classify_submission(
                     &reader,
                     &feed_data.feed_guid,
                     &req.source_url,
                     &req.canonical_url,
-                    "GuidChange",
                 )? {
-                    return Ok((refusal, vec![], vec![]));
+                    db::SubmissionClass::GuidChange { .. } => {
+                        req.force_reingest = true;
+                        if let Some(refusal) = retired_source_refusal(
+                            &reader,
+                            &feed_data.feed_guid,
+                            &req.source_url,
+                            &req.canonical_url,
+                            "GuidChange",
+                        )? {
+                            return Ok((refusal, vec![], vec![]));
+                        }
+                        blocking_body_skips_chain =
+                            ingest::source_blocks_this_index(&feed_data.blocks);
+                    }
+                    db::SubmissionClass::Update => {
+                        blocking_body_skips_chain =
+                            ingest::source_blocks_this_index(&feed_data.blocks);
+                    }
+                    db::SubmissionClass::RecordConflict
+                    | db::SubmissionClass::Mirror { .. }
+                    | db::SubmissionClass::NewFeed => {}
                 }
-                guid_change_skips_chain = ingest::source_blocks_this_index(&feed_data.blocks);
             }
 
             // 1. Get existing feed (read-only)
@@ -2788,7 +2801,7 @@ async fn handle_ingest_feed(
                 existing: existing.as_ref(),
             };
 
-            if guid_change_skips_chain {
+            if blocking_body_skips_chain {
                 ReadPhaseOutcome::Verified(vec![])
             } else {
                 match state2.chain.run(&ctx) {

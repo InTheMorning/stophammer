@@ -22,11 +22,19 @@ fn test_app_state(
     db: Arc<Mutex<rusqlite::Connection>>,
     crawl_token: &str,
 ) -> Arc<stophammer::api::AppState> {
+    test_app_state_with_chain(db, crawl_token, &["content_hash"])
+}
+
+fn test_app_state_with_chain(
+    db: Arc<Mutex<rusqlite::Connection>>,
+    crawl_token: &str,
+    chain_names: &[&str],
+) -> Arc<stophammer::api::AppState> {
     let signer = Arc::new(common::temp_signer("test-adr0057-block-signer"));
     let pubkey = signer.pubkey_hex().to_string();
 
     let spec = stophammer::verify::ChainSpec {
-        names: vec!["content_hash".to_string()],
+        names: chain_names.iter().map(|name| (*name).to_string()).collect(),
     };
     let chain = stophammer::verify::build_chain(&spec, crawl_token.to_string());
 
@@ -752,4 +760,84 @@ async fn operator_block_answers_blocked_before_the_source_block() {
         body["reason"], "blocked",
         "ADR 0057 invariant: an operator block of ADR 0053 is checked first: {body:?}"
     );
+}
+
+/// ADR 0057 §3, operator choice 2026-11-26 (task 003): a blocking body of a
+/// known feed skips the verifier chain. A publisher feed that removes its last
+/// music `remoteItem` and adds a block fails `medium_music`, but the node
+/// retires the record.
+#[tokio::test]
+async fn update_block_retires_a_body_that_a_verifier_refuses() {
+    let crawl_token = "adr0057-block-token-verifier-refuses";
+    let db = common::test_db_arc();
+    let state = test_app_state_with_chain(
+        Arc::clone(&db),
+        crawl_token,
+        &["content_hash", "medium_music"],
+    );
+    let app = stophammer::api::build_router(state);
+
+    let feed_guid = "adr0057-publisher-verifier-refuses";
+    let canonical_url = "https://example.com/adr0057-publisher-verifier-refuses.xml";
+    let first = serde_json::json!({
+        "feed_guid": feed_guid,
+        "title": "ADR 0057 Label",
+        "raw_medium": "publisher",
+        "explicit": false,
+        "remote_items": [{
+            "position": 0,
+            "medium": "music",
+            "remote_feed_guid": "adr0057-release-of-the-label",
+            "remote_feed_url": "https://example.com/adr0057-release.xml"
+        }],
+        "tracks": []
+    });
+    let (status, body) = ingest(
+        app.clone(),
+        &ingest_payload(
+            canonical_url,
+            canonical_url,
+            crawl_token,
+            "hash-001",
+            &first,
+        ),
+    )
+    .await;
+    assert_eq!(status, 200, "first ingest must succeed: {body:?}");
+    assert_eq!(
+        body["accepted"], true,
+        "first ingest must be accepted: {body:?}"
+    );
+
+    let blocked = serde_json::json!({
+        "feed_guid": feed_guid,
+        "title": "ADR 0057 Label",
+        "raw_medium": "publisher",
+        "explicit": false,
+        "blocks": [{ "id": null, "value": "yes" }],
+        "remote_items": [],
+        "tracks": []
+    });
+    let (status, body) = ingest(
+        app,
+        &ingest_payload(
+            canonical_url,
+            canonical_url,
+            crawl_token,
+            "hash-002",
+            &blocked,
+        ),
+    )
+    .await;
+    assert_eq!(status, 200, "blocking ingest must return 200");
+    assert_eq!(
+        body["reason"], "source_blocked",
+        "the block rule must run, not medium_music: {body:?}"
+    );
+    assert_eq!(
+        feeds_row_count(&db, feed_guid),
+        0,
+        "ADR 0057 §3: the record must be retired"
+    );
+    assert_eq!(events_of_type_count(&db, "feed_retired"), 1);
 }
