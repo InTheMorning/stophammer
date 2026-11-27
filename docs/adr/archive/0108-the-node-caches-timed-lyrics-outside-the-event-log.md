@@ -1,6 +1,12 @@
 # ADR 0108: The Node Caches Timed Lyrics Outside The Event Log
 
 ## Status
+Superseded on 2026-11-27 by musicindex ADR 0104 R-LYRIC-6 (musicindex commit
+`30367c2`). The operator selected a separate lyrics index on 2026-11-27. That
+index fetches, normalizes, keeps and serves all lyrics. stophammer keeps only
+its transcript references, and a community node serves no lyrics text. No code
+held this record. Read it for history only.
+
 Accepted on 2026-11-26. musicindex ADR 0103 R-LYRIC-4 item 3 gives the table,
 the fetch and the API field to a stophammer ADR. The orchestrator session sent
 the request on 2026-11-26. This session selected the shape below. No code
@@ -12,12 +18,12 @@ holds it, and the code waits for the parser of R-LYRIC-3 (§2).
   community node then keeps it in its log with no removal.
 - Uses:
   - musicindex ADR 0103 R-LYRIC-2 to R-LYRIC-4, musicindex commit `868d834`.
-  - [ADR 0003](0003-sqlite-wal-primary-store.md) for the event log.
-  - [ADR 0054](archive/0054-a-fetch-reaches-only-public-feed-hosts.md) §1 and
+  - [ADR 0003](../0003-sqlite-wal-primary-store.md) for the event log.
+  - [ADR 0054](0054-a-fetch-reaches-only-public-feed-hosts.md) §1 and
     §4 for the address test and the web URL rule.
-  - [ADR 0066](0066-a-version-number-tells-what-to-upgrade.md) for the
+  - [ADR 0066](../0066-a-version-number-tells-what-to-upgrade.md) for the
     version.
-  - [ADR 0077](0077-a-new-body-value-states-its-refill-pass.md) for the
+  - [ADR 0077](../0077-a-new-body-value-states-its-refill-pass.md) for the
     refill pass.
 
 ## Date
