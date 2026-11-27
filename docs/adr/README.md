@@ -73,6 +73,7 @@ disagree.
 | [0099](0099-the-lists-and-their-rows.md) | The lists and their rows. One current ADR for the release lists, the artist list, the link facts, `named_feeds`, `artist_key`, `release_track_counts`, the identity key and the order key, and `sort` and `reverse` on the four routes. It makes no new decision. Supersedes ADRs 0068, 0070, 0084, 0089, 0090, 0091 and 0092, and the list sections of ADRs 0071 and 0085 | Accepted |
 | [0069](0069-an-album-confirms-each-credit.md) | An album names one or more publishers inside `<podcast:publisher>`, and only a two-way link is confirmed. Each publisher row gives `album_names_as` and `album_names_rank` (§3a), and a publisher read gives `co_credited_feeds`. The bare-item credit is removed (§1a) | Accepted |
 | [0076](0076-a-named-feed-entry-states-its-confirmation.md) | A `named_feeds` entry gives `two_way_validated`. `by-name` and `recent` take `named_feed_guid`, and search takes `include=link_facts` for a `publisher` row. Changes ADR 0071 §3 and ADR 0068 §5, which ADR 0099 restates. HitIt request 9 | Accepted |
+| [0108](0108-the-node-caches-timed-lyrics-outside-the-event-log.md) | A node worker fetches each track transcript with a conditional request, normalizes it with the musicindex-lib parser and keeps it in the local `transcript_lyrics_cache`, not in the event log. Each node fetches for itself. `include=lyrics` gives the namespace JSON and a status. No code holds it until the parser exists | Accepted |
 
 ## Identity, Signing And Security
 

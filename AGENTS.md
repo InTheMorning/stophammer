@@ -32,6 +32,10 @@ release, except the work in the next list.
   podroll of each feed and gives it with `include=podroll`. After the deploy,
   the refill pass and the refill check of its "Consequences" are open until
   the check passes (ADR 0077 §2).
+- [ADR 0108](docs/adr/0108-the-node-caches-timed-lyrics-outside-the-event-log.md):
+  the node caches timed lyrics outside the event log and gives them with
+  `include=lyrics`. No code holds it. The code waits for the public parser of
+  musicindex ADR 0103 R-LYRIC-3 in musicindex-lib.
 
 ### Open Checks
 
