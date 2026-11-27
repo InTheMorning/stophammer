@@ -6,9 +6,10 @@
 //! Security audit v2 tests — 2026-03-13
 //!
 //! Re-verifies v1 findings that outlive ADR 0056. The proof flow and its
-//! bearer path are gone, so this file keeps the SSRF guard tests (moved to
-//! `fetch_guard`), sync/register auth, SSE registry abuse, rate limiter
-//! X-Forwarded-For spoofing, and CORS checks.
+//! bearer path are gone, so this file keeps sync/register auth, SSE registry
+//! abuse, rate limiter X-Forwarded-For spoofing, and CORS checks. The address
+//! check is in `musicindex-fetch-guard`, and its tests are in that crate
+//! (musicindex ADR 0104 R-LYRIC-9 item 2).
 
 mod common;
 
@@ -104,85 +105,6 @@ fn json_request(method: &str, uri: &str, body: &serde_json::Value) -> Request<ax
         .header("Content-Type", "application/json")
         .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
         .unwrap()
-}
-
-// ============================================================================
-// CS-01 SSRF guard — `fetch_guard::validate_feed_url`
-//
-// A feed_url can point at an internal target: 127.0.0.1, 169.254.x.x,
-// file://, and so on. The guard rejects a disallowed scheme and a
-// private or reserved IP before any code fetches the URL.
-//
-// ADR 0056 removed the proof flow, which was the caller that fetched a
-// feed_url on behalf of a public request. The guard itself stays. Sync
-// registration and the ADR 0054 crawl fetch still call it.
-// ============================================================================
-
-#[test]
-fn v2_cs01_validate_feed_url_rejects_file_scheme() {
-    let result = stophammer::fetch_guard::validate_feed_url("file:///etc/passwd");
-    assert!(result.is_err(), "file:// scheme should be rejected");
-    assert!(result.unwrap_err().contains("disallowed URL scheme"));
-}
-
-#[test]
-fn v2_cs01_validate_feed_url_rejects_private_ips() {
-    // 127.0.0.0/8 (loopback)
-    assert!(
-        stophammer::fetch_guard::validate_feed_url("http://127.0.0.1/feed.xml").is_err(),
-        "127.0.0.1 should be rejected"
-    );
-
-    // 10.0.0.0/8
-    assert!(
-        stophammer::fetch_guard::validate_feed_url("http://10.0.0.1/feed.xml").is_err(),
-        "10.0.0.0/8 should be rejected"
-    );
-
-    // 172.16.0.0/12
-    assert!(
-        stophammer::fetch_guard::validate_feed_url("http://172.16.0.1/feed.xml").is_err(),
-        "172.16.0.0/12 should be rejected"
-    );
-
-    // 192.168.0.0/16
-    assert!(
-        stophammer::fetch_guard::validate_feed_url("http://192.168.1.1/feed.xml").is_err(),
-        "192.168.0.0/16 should be rejected"
-    );
-
-    // 169.254.0.0/16 (link-local / cloud metadata)
-    assert!(
-        stophammer::fetch_guard::validate_feed_url("http://169.254.169.254/latest/meta-data/")
-            .is_err(),
-        "169.254.0.0/16 (cloud metadata) should be rejected"
-    );
-
-    // IPv6 loopback
-    assert!(
-        stophammer::fetch_guard::validate_feed_url("http://[::1]/feed.xml").is_err(),
-        "::1 should be rejected"
-    );
-}
-
-#[test]
-fn v2_cs01_validate_feed_url_accepts_public_urls() {
-    assert!(stophammer::fetch_guard::validate_feed_url("https://93.184.216.34/feed.xml").is_ok());
-    assert!(stophammer::fetch_guard::validate_feed_url("http://93.184.216.34/feed.xml").is_ok());
-    assert!(stophammer::fetch_guard::validate_feed_url("https://1.1.1.1/podcast.xml").is_ok());
-}
-
-#[test]
-fn v2_cs01_validate_feed_url_rejects_disallowed_schemes() {
-    assert!(stophammer::fetch_guard::validate_feed_url("ftp://example.com/feed.xml").is_err());
-    assert!(stophammer::fetch_guard::validate_feed_url("gopher://example.com/").is_err());
-    assert!(stophammer::fetch_guard::validate_feed_url("data:text/xml,<rss/>").is_err());
-}
-
-#[test]
-fn v2_cs01_validate_feed_url_rejects_malformed() {
-    assert!(stophammer::fetch_guard::validate_feed_url("not-a-url").is_err());
-    assert!(stophammer::fetch_guard::validate_feed_url("").is_err());
 }
 
 // ============================================================================

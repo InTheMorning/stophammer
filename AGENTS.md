@@ -204,7 +204,6 @@ owns naming, imports, error types and documentation. `[lints]` in
 | `db`           | SQLite schema init, core queries, pragmas            |
 | `db_pool`      | WAL connection pool (1 writer, N readers)            |
 | `event`        | Signed event envelope and serialisation              |
-| `fetch_guard`  | SSRF guard: URL validation, DNS-pinned fetches       |
 | `ingest`       | Crawler submission DTOs                              |
 | `live`         | Pure ingest rules for a live item (ADR 0064)         |
 | `medium`       | Podcast `<podcast:medium>` handling                  |

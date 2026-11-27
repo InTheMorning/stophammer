@@ -7,8 +7,8 @@
 //! - Community push: duplicate event, bad-signature event
 //!
 //! ADR 0056 removed the proof flow. The former "Fix 2 (proof race)" and
-//! "Proof module" sections went with it. The `validate_feed_url` SSRF guard
-//! tests stay, moved to `fetch_guard`.
+//! "Proof module" sections went with it. The address check is in
+//! `musicindex-fetch-guard`, and its tests are in that crate.
 
 #![expect(
     clippy::significant_drop_tightening,
@@ -1401,62 +1401,6 @@ async fn community_push_bad_signature_rejected() {
         )
         .unwrap();
     assert_eq!(count, 0, "feed from bad-signature event must not be in DB");
-}
-
-// ============================================================================
-// SSRF guard: validate_feed_url unit tests
-// ============================================================================
-
-// ---------------------------------------------------------------------------
-// 23. validate_feed_url rejects non-HTTP schemes
-// ---------------------------------------------------------------------------
-
-#[test]
-fn validate_feed_url_rejects_ftp() {
-    let result = stophammer::fetch_guard::validate_feed_url("ftp://example.com/feed.xml");
-    assert!(result.is_err(), "ftp:// should be rejected");
-    assert!(
-        result.unwrap_err().contains("disallowed URL scheme"),
-        "error should mention disallowed scheme"
-    );
-}
-
-#[test]
-fn validate_feed_url_rejects_file() {
-    let result = stophammer::fetch_guard::validate_feed_url("file:///etc/passwd");
-    assert!(result.is_err(), "file:// should be rejected");
-}
-
-// ---------------------------------------------------------------------------
-// 24. validate_feed_url rejects private IPs
-// ---------------------------------------------------------------------------
-
-#[test]
-fn validate_feed_url_rejects_localhost() {
-    let result = stophammer::fetch_guard::validate_feed_url("http://127.0.0.1/feed.xml");
-    assert!(result.is_err(), "127.0.0.1 should be rejected");
-    assert!(
-        result.unwrap_err().contains("private/reserved IP"),
-        "error should mention private IP"
-    );
-}
-
-#[test]
-fn validate_feed_url_rejects_private_10() {
-    let result = stophammer::fetch_guard::validate_feed_url("http://10.0.0.1/feed.xml");
-    assert!(result.is_err(), "10.0.0.1 should be rejected");
-}
-
-// ---------------------------------------------------------------------------
-// 25. validate_feed_url accepts public HTTPS
-// ---------------------------------------------------------------------------
-
-#[test]
-fn validate_feed_url_accepts_public_https() {
-    // We can't guarantee DNS resolution in CI, but the scheme+IP check passes.
-    // Use a literal public IP so DNS resolution is not needed.
-    let result = stophammer::fetch_guard::validate_feed_url("https://8.8.8.8/feed.xml");
-    assert!(result.is_ok(), "public IP over HTTPS should be accepted");
 }
 
 // ---------------------------------------------------------------------------

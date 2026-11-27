@@ -15,7 +15,6 @@
 //! | [`community`] | Community (replica) node sync, push-receive, and primary registration |
 //! | [`db`] | `SQLite` schema, queries, and connection helpers |
 //! | [`event`] | Signed event envelope and serialisation |
-//! | [`fetch_guard`] | SSRF guard: URL validation and DNS-pinned fetches |
 //! | [`ingest`] | Crawler submission types (`IngestFeedRequest` / `IngestResponse`) |
 //! | [`live`] | Pure ingest rules for a live item (ADR 0064 section 4) |
 //! | [`model`] | Core domain types: `Artist`, `Feed`, `Track`, `PaymentRoute`, etc. |
@@ -53,7 +52,6 @@ pub mod community;
 pub mod db;
 pub mod db_pool;
 pub mod event;
-pub mod fetch_guard;
 pub mod ingest;
 pub mod live;
 pub mod medium;

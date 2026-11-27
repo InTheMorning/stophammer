@@ -36,9 +36,7 @@ use utoipa::ToSchema;
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 
-use crate::{
-    db, db_pool, event, fetch_guard, ingest, live, medium, model, query, signing, sync, verify,
-};
+use crate::{db, db_pool, event, ingest, live, medium, model, query, signing, sync, verify};
 
 // ── FG-02 SSE artist follow — 2026-03-13 ─────────────────────────────────
 // ADR 0034 §11: the registry keys each channel by feed GUID, not by artist.
@@ -4375,7 +4373,7 @@ async fn fan_out_push_inner(
                 #[cfg(not(feature = "test-util"))]
                 {
                     if let Ok(parsed) = url::Url::parse(&push_url) {
-                        if !fetch_guard::is_url_ssrf_safe(&parsed) {
+                        if musicindex_fetch_guard::check_url(&parsed).is_err() {
                             tracing::warn!(
                                 peer = %pubkey, url = %push_url,
                                 "fanout: skipping peer with unsafe push URL (SSRF blocked)"
@@ -4595,18 +4593,24 @@ async fn handle_sync_register(
 
     if !skip_ssrf {
         let url_for_check = req.node_url.clone();
-        tokio::task::spawn_blocking(move || fetch_guard::validate_node_url(&url_for_check))
-            .await
-            .map_err(|e| ApiError {
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("SSRF validation task failed: {e}"),
-                www_authenticate: None,
-            })?
-            .map_err(|e| ApiError {
-                status: StatusCode::UNPROCESSABLE_ENTITY,
-                message: e,
-                www_authenticate: None,
-            })?;
+        tokio::task::spawn_blocking(move || {
+            let parsed =
+                url::Url::parse(&url_for_check).map_err(|e| format!("invalid node URL: {e}"))?;
+            musicindex_fetch_guard::check_url(&parsed)
+                .map(|_| ())
+                .map_err(|e| format!("node URL rejected: {e}"))
+        })
+        .await
+        .map_err(|e| ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("SSRF validation task failed: {e}"),
+            www_authenticate: None,
+        })?
+        .map_err(|e| ApiError {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            message: e,
+            www_authenticate: None,
+        })?;
     }
 
     verify_sync_register_target(&req.node_url, &req.node_pubkey, skip_ssrf).await?;
@@ -4729,7 +4733,9 @@ async fn verify_sync_register_target(
         let (hostname, resolved_addrs) = tokio::task::spawn_blocking(move || {
             let parsed = url::Url::parse(&node_info_url_for_resolve)
                 .map_err(|e| format!("invalid node/info URL: {e}"))?;
-            fetch_guard::resolve_and_validate_url(&parsed)
+            musicindex_fetch_guard::check_url(&parsed)
+                .map(|checked| (checked.host, checked.addrs))
+                .map_err(|e| e.to_string())
         })
         .await
         .map_err(|e| ApiError {

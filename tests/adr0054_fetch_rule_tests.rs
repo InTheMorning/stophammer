@@ -1,9 +1,8 @@
-// ADR 0054 section 5: the shared table of cases for the address guard, and
-// section 4: the node serves only web URLs in URL fields.
+// ADR 0054 section 4: the node serves only web URLs in URL fields.
 //
-// This file covers task 003 (`stophammer`): `fetch_guard::is_public_ip`, the
-// URL checks of `fetch_guard::validate_node_url`, and the read-route /
-// ingest-warning behavior of a URL field. The unit tests of
+// This file covers the read-route and ingest-warning behavior of a URL field.
+// The address cases of section 1 and section 5 are in the tests of
+// `musicindex-fetch-guard` (musicindex ADR 0104 R-LYRIC-9 item 2). The unit tests of
 // `web_url_or_none` are in stophammer-parser `tests/web_link.rs`.
 
 #![recursion_limit = "256"]
@@ -11,136 +10,12 @@
 mod common;
 
 use std::collections::HashMap;
-use std::net::IpAddr;
 use std::sync::{Arc, Mutex, RwLock};
 
 use axum::body::Body;
 use http::Request;
 use http_body_util::BodyExt;
 use tower::ServiceExt;
-
-use stophammer::fetch_guard::{is_public_ip, validate_node_url};
-
-// ── is_public_ip: ADR 0054 section 5 ────────────────────────────────────────
-
-#[test]
-fn is_public_ip_rejects_ipv4_loopback() {
-    assert!(!is_public_ip("127.0.0.1".parse::<IpAddr>().unwrap()));
-}
-
-#[test]
-fn is_public_ip_rejects_ipv6_loopback() {
-    assert!(!is_public_ip("::1".parse::<IpAddr>().unwrap()));
-}
-
-#[test]
-fn is_public_ip_rejects_ipv4_private_ranges() {
-    for addr in ["10.0.0.1", "172.16.0.1", "192.168.0.1"] {
-        assert!(
-            !is_public_ip(addr.parse::<IpAddr>().unwrap()),
-            "{addr} should not be public"
-        );
-    }
-}
-
-#[test]
-fn is_public_ip_rejects_link_local_metadata_address() {
-    assert!(!is_public_ip("169.254.169.254".parse::<IpAddr>().unwrap()));
-}
-
-#[test]
-fn is_public_ip_rejects_cgnat() {
-    assert!(!is_public_ip("100.64.0.1".parse::<IpAddr>().unwrap()));
-    // 100.128.0.1 is outside the /10 and should stay public.
-    assert!(is_public_ip("100.128.0.1".parse::<IpAddr>().unwrap()));
-}
-
-#[test]
-fn is_public_ip_rejects_ipv6_ula_and_link_local() {
-    assert!(!is_public_ip("fc00::1".parse::<IpAddr>().unwrap()));
-    assert!(!is_public_ip("fe80::1".parse::<IpAddr>().unwrap()));
-}
-
-#[test]
-fn is_public_ip_rejects_ipv4_mapped_and_nat64_private() {
-    assert!(!is_public_ip("::ffff:127.0.0.1".parse::<IpAddr>().unwrap()));
-    assert!(!is_public_ip(
-        "64:ff9b::a00:1".parse::<IpAddr>().unwrap() // embeds 10.0.0.1
-    ));
-}
-
-#[test]
-fn is_public_ip_accepts_a_public_https_address() {
-    assert!(is_public_ip("93.184.216.34".parse::<IpAddr>().unwrap()));
-}
-
-#[test]
-fn is_public_ip_rejects_documentation_and_benchmark_ranges() {
-    for addr in ["192.0.2.1", "198.51.100.1", "203.0.113.1", "198.18.0.1"] {
-        assert!(
-            !is_public_ip(addr.parse::<IpAddr>().unwrap()),
-            "{addr} should not be public"
-        );
-    }
-    // 198.20.0.1 is outside the 198.18.0.0/15 benchmark range.
-    assert!(is_public_ip("198.20.0.1".parse::<IpAddr>().unwrap()));
-}
-
-#[test]
-fn is_public_ip_rejects_multicast_broadcast_and_unspecified() {
-    assert!(!is_public_ip("224.0.0.1".parse::<IpAddr>().unwrap()));
-    assert!(!is_public_ip("255.255.255.255".parse::<IpAddr>().unwrap()));
-    assert!(!is_public_ip("0.0.0.0".parse::<IpAddr>().unwrap()));
-    assert!(!is_public_ip("::".parse::<IpAddr>().unwrap()));
-}
-
-#[test]
-fn is_public_ip_rejects_ipv6_documentation_range() {
-    assert!(!is_public_ip("2001:db8::1".parse::<IpAddr>().unwrap()));
-}
-
-// Task file "Acceptance Criteria": four named cases the embedded-IPv4 forms
-// must resolve exactly this way.
-#[test]
-fn is_public_ip_embedded_ipv4_forms_take_the_inner_address() {
-    assert!(!is_public_ip("::ffff:10.0.0.1".parse::<IpAddr>().unwrap()));
-    assert!(!is_public_ip("::127.0.0.1".parse::<IpAddr>().unwrap()));
-    assert!(!is_public_ip(
-        "64:ff9b::7f00:1".parse::<IpAddr>().unwrap() // embeds 127.0.0.1
-    ));
-    assert!(is_public_ip("::ffff:1.1.1.1".parse::<IpAddr>().unwrap()));
-}
-
-// ── validate_node_url: the URL-level checks of ADR 0054 section 5 ──────────
-
-#[test]
-fn validate_node_url_rejects_ftp_scheme() {
-    assert!(validate_node_url("ftp://example.com/feed.xml").is_err());
-}
-
-#[test]
-fn validate_node_url_rejects_file_scheme() {
-    assert!(validate_node_url("file:///etc/passwd").is_err());
-}
-
-#[test]
-fn validate_node_url_rejects_localhost_by_name() {
-    // "http://localhost/" (ADR 0054 section 5) resolves through DNS to the
-    // IPv4 or IPv6 loopback address on every environment this suite runs in.
-    assert!(validate_node_url("http://localhost:1/").is_err());
-}
-
-#[test]
-fn validate_node_url_rejects_userinfo() {
-    // ADR 0054 section 1: "The URL has no user name and no password."
-    assert!(validate_node_url("http://user:pass@93.184.216.34/").is_err());
-    assert!(validate_node_url("http://user@93.184.216.34/").is_err());
-}
-
-#[test]
-fn validate_node_url_accepts_a_public_https_url() {
-    assert!(validate_node_url("https://93.184.216.34/").is_ok());
-}
 
 // ── Ingest-to-query end-to-end: ADR 0054 section 4 ──────────────────────────
 

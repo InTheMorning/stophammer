@@ -1502,9 +1502,17 @@ dependencies = [
 [[package]]
 name = "musicindex-build-info"
 version = "0.1.0"
-source = "git+https://github.com/InTheMorning/musicindex-lib?rev=e6d11118d33069c26c01368f7de71524988039c6#e6d11118d33069c26c01368f7de71524988039c6"
+source = "git+https://github.com/InTheMorning/musicindex-lib?rev=24d832abdcb050dba71d97a56e53bcac8e346a31#24d832abdcb050dba71d97a56e53bcac8e346a31"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "musicindex-fetch-guard"
+version = "0.1.0"
+source = "git+https://github.com/InTheMorning/musicindex-lib?rev=24d832abdcb050dba71d97a56e53bcac8e346a31#24d832abdcb050dba71d97a56e53bcac8e346a31"
+dependencies = [
+ "url",
 ]
 
 [[package]]
@@ -2525,6 +2533,7 @@ dependencies = [
  "instant-acme",
  "mimalloc",
  "musicindex-build-info",
+ "musicindex-fetch-guard",
  "r2d2",
  "r2d2_sqlite",
  "rand_core 0.6.4",

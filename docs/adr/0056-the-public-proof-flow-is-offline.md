@@ -3,6 +3,11 @@
 ## Status
 Accepted
 
+Changed by musicindex ADR 0104 R-LYRIC-9 item 2 on 2026-11-27, for §4. The
+address check moved from `src/fetch_guard.rs` to the crate
+`musicindex-fetch-guard` of musicindex-lib, with no copy. Its tests moved with
+it. The node calls `check_url` of that crate.
+
 Supersedes [ADR 0018](archive/0018-proof-of-possession-mutations.md).
 
 ## Date
